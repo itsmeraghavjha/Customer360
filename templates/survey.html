@@ -116,6 +116,64 @@
     display: none;
   }
   .ratio-warn.visible { display: block; }
+
+  /* ── Photo upload states ── */
+  .photo-upload-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 20px;
+  }
+  .photo-upload-status .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--green-600);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .photo-upload-status.uploading { color: var(--green-700); }
+  .photo-upload-status.done      { color: #16A34A; }
+  .photo-upload-status.error-msg { color: #DC2626; }
+
+  /* ── Next button loading state ── */
+  #navNextBtn.loading {
+    opacity: 0.75;
+    pointer-events: none;
+  }
+  #navNextBtn.loading::after {
+    content: '';
+    display: inline-block;
+    width: 12px; height: 12px;
+    margin-left: 8px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    vertical-align: middle;
+  }
+
+  /* ── Progress bar inside upload box ── */
+  .upload-progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+    display: none;
+  }
+  .upload-progress-bar.visible { display: block; }
+  .upload-progress-fill {
+    height: 100%;
+    background: var(--green-500);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
 </style>
 {% endblock %}
 
@@ -261,19 +319,33 @@
 
   <div class="field">
     <label class="field-label">Outlet Photo <span class="req">*</span> <span class="hint">Hoarding must be visible</span></label>
+
+    <!-- Existing photo preview (already saved) -->
     {% if survey.photo_filename %}
     <img src="/static/uploads/{{ survey.photo_filename }}" class="img-preview"
          id="existingPhoto" style="display:block;margin-bottom:10px"/>
     {% endif %}
+
     <div class="img-upload" id="imgUploadBox">
+      <!-- File input — we read this, compress, upload in background, then CLEAR it
+           so the form POST doesn't re-send the heavy file -->
       <input type="file" name="photo" id="photoInput" accept="image/*" capture="environment"
-             onchange="previewImg(event)" />
+             onchange="handlePhotoSelect(event)" />
       <div class="upload-icon">📷</div>
       <p>Tap to capture / replace photo</p>
-      <p class="hint">Max 10 MB · JPG/PNG</p>
+      <p class="hint">Compressed automatically · Max 10 MB · JPG/PNG</p>
       <img class="img-preview" id="imgPreview" />
+      <div class="upload-progress-bar" id="uploadProgressBar">
+        <div class="upload-progress-fill" id="uploadProgressFill"></div>
+      </div>
     </div>
+
+    <!-- Upload status indicator -->
+    <div class="photo-upload-status" id="photoUploadStatus"></div>
     <div class="field-error" id="photo_err">Outlet photo is required</div>
+
+    <!-- Hidden flag: set to '1' once background upload succeeds -->
+    <input type="hidden" id="photoUploaded" value="{{ '1' if survey.photo_filename else '' }}" />
   </div>
 </div>
 <!-- /STEP 1 -->
@@ -533,7 +605,6 @@
     <input type="text" name="ic_distributor" id="ic_distributor"
            value="{{ sup.get('ic_distributor','') }}"
            placeholder="Hyderabad IC distributor code" />
-    <p style="font-size:11px;color:var(--text-sub);margin-top:4px;font-weight:600"></p>
   </div>
 </div>
 
@@ -558,7 +629,6 @@
       </div>
       {% endfor %}
     </div>
-    <!-- No assets = reveal reason / interest panel automatically -->
   </div>
 
   <div class="field" id="ownershipField"
@@ -661,7 +731,6 @@
     {% endfor %}
   </div>
 
-  <!-- Completeness check banner -->
   {% set missing = [] %}
   {% if not survey.outlet_name %}{% set _ = missing.append('Outlet Name') %}{% endif %}
   {% if not survey.outlet_type %}{% set _ = missing.append('Outlet Type') %}{% endif %}
@@ -722,11 +791,19 @@
 {% block scripts %}
 <script>
 /* ═══════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════ */
+const STEP       = {{ step }};
+const TOTAL      = {{ total_steps }};
+const SURVEY_ID  = '{{ survey.id }}';
+
+// Photo upload state machine
+// 'idle' | 'compressing' | 'uploading' | 'done' | 'error'
+let photoState = '{{ "done" if survey.photo_filename else "idle" }}';
+
+/* ═══════════════════════════════════════════════
    UTILITY
 ═══════════════════════════════════════════════ */
-const STEP = {{ step }};
-const TOTAL = {{ total_steps }};
-
 function showPanel(id, show) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('show', show);
@@ -759,6 +836,13 @@ function scrollToFirstError() {
   if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+function setNextBtnLoading(loading, label) {
+  const btn = document.getElementById('navNextBtn');
+  if (!btn) return;
+  btn.classList.toggle('loading', loading);
+  if (label) btn.textContent = label;
+}
+
 /* ═══════════════════════════════════════════════
    KEYBOARD / MOBILE FIX
 ═══════════════════════════════════════════════ */
@@ -774,7 +858,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Remarks counter (Step 7)
   const remarks = document.getElementById('se_remarks');
   const counter = document.getElementById('remarksCount');
   if (remarks && counter) {
@@ -791,7 +874,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-
 /* ═══════════════════════════════════════════════
    WHATSAPP TOGGLE
 ═══════════════════════════════════════════════ */
@@ -804,52 +886,129 @@ function toggleWa(cb) {
   }
 }
 
-
 /* ═══════════════════════════════════════════════
    GPS CAPTURE
+   Timeout reduced: 12s → 8s for faster failure feedback
 ═══════════════════════════════════════════════ */
 function captureGeo() {
   const btn = document.getElementById('geoBtn');
-  if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-    document.getElementById('geoVal').textContent = 'Error: HTTPS required for GPS';
-    showToast('HTTPS is required to capture GPS', 'error');
-    btn.textContent = 'Failed'; return;
-  }
-  btn.textContent = '⏳'; btn.disabled = true;
+  btn.textContent = '⏳ Locating…'; btn.disabled = true;
+
   if (!navigator.geolocation) {
-    document.getElementById('geoVal').textContent = 'Not supported on this device';
+    document.getElementById('geoVal').textContent = 'GPS not supported on this device';
     btn.textContent = 'N/A'; btn.disabled = false; return;
   }
-  navigator.geolocation.getCurrentPosition(pos => {
-    const lat = pos.coords.latitude.toFixed(6);
-    const lon = pos.coords.longitude.toFixed(6);
-    document.getElementById('latInput').value = lat;
-    document.getElementById('lngInput').value = lon;
-    document.getElementById('geoLabel').textContent = '✅ Location Captured';
-    document.getElementById('geoVal').textContent = lat + ', ' + lon;
-    document.getElementById('geoStatus').classList.add('captured');
-    markGroupError('gps_err', false);
-    btn.textContent = '✓ Done';
-    btn.style.background = 'var(--green-500)';
-    btn.disabled = false;
-    showToast('GPS captured successfully', 'success', 2000);
-  }, err => {
-    const msgs = {
-      1: 'Location permission denied. Please allow in browser settings.',
-      2: 'Location unavailable. Try again outdoors.',
-      3: 'GPS timed out. Try again.'
-    };
-    document.getElementById('geoVal').textContent = msgs[err.code] || 'GPS error';
-    showToast(msgs[err.code] || 'GPS capture failed', 'error');
-    btn.textContent = 'Retry'; btn.disabled = false;
-  }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+
+  const timeout = setTimeout(() => {
+    // Proactively show a message before the browser fires the error
+    document.getElementById('geoVal').textContent = 'Still trying… move outdoors if possible';
+  }, 5000);
+
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      clearTimeout(timeout);
+      const lat = pos.coords.latitude.toFixed(6);
+      const lon = pos.coords.longitude.toFixed(6);
+      document.getElementById('latInput').value = lat;
+      document.getElementById('lngInput').value = lon;
+      document.getElementById('geoLabel').textContent = '✅ Location Captured';
+      document.getElementById('geoVal').textContent = lat + ', ' + lon;
+      document.getElementById('geoStatus').classList.add('captured');
+      markGroupError('gps_err', false);
+      btn.textContent = '✓ Done';
+      btn.style.background = 'var(--green-500)';
+      btn.disabled = false;
+      showToast('GPS captured ✓', 'success', 2000);
+    },
+    err => {
+      clearTimeout(timeout);
+      const msgs = {
+        1: 'Location permission denied — allow in browser settings.',
+        2: 'Location unavailable. Try again outdoors.',
+        3: 'GPS timed out. Try again in an open area.'
+      };
+      document.getElementById('geoVal').textContent = msgs[err.code] || 'GPS error';
+      showToast(msgs[err.code] || 'GPS capture failed', 'error');
+      btn.textContent = '🔄 Retry'; btn.disabled = false;
+    },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+  );
 }
 
+/* ═══════════════════════════════════════════════
+   IMAGE COMPRESSION  (Canvas API — no libraries)
+   Compresses to max 1200px wide, quality 0.82 JPEG
+   Typical result: 5 MB photo → ~250 KB
+═══════════════════════════════════════════════ */
+function compressImage(file, maxDim = 1200, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+        else                { width  = Math.round(width  * maxDim / height); height = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Compression failed')),
+                    'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
+    img.src = url;
+  });
+}
 
 /* ═══════════════════════════════════════════════
-   IMAGE PREVIEW + SIZE CHECK
+   PHOTO STATUS UI helpers
 ═══════════════════════════════════════════════ */
-function previewImg(e) {
+function setPhotoStatus(state, msg) {
+  const el = document.getElementById('photoUploadStatus');
+  const bar = document.getElementById('uploadProgressBar');
+  const fill = document.getElementById('uploadProgressFill');
+  if (!el) return;
+  photoState = state;
+
+  if (state === 'compressing') {
+    el.className = 'photo-upload-status uploading';
+    el.innerHTML = '<div class="spinner"></div> Compressing photo…';
+    bar.classList.add('visible');
+    fill.style.width = '20%';
+  } else if (state === 'uploading') {
+    el.className = 'photo-upload-status uploading';
+    el.innerHTML = '<div class="spinner"></div> Uploading photo…';
+    fill.style.width = '60%';
+  } else if (state === 'done') {
+    el.className = 'photo-upload-status done';
+    el.innerHTML = '✅ Photo saved';
+    fill.style.width = '100%';
+    setTimeout(() => { bar.classList.remove('visible'); fill.style.width = '0%'; }, 1200);
+    markGroupError('photo_err', false);
+    document.getElementById('imgUploadBox').style.borderColor = 'var(--green-500)';
+  } else if (state === 'error') {
+    el.className = 'photo-upload-status error-msg';
+    el.innerHTML = '❌ ' + (msg || 'Upload failed — tap photo to retry');
+    fill.style.width = '0%';
+    bar.classList.remove('visible');
+  } else {
+    el.className = 'photo-upload-status';
+    el.innerHTML = '';
+    bar.classList.remove('visible');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   BACKGROUND PHOTO UPLOAD
+   1. User picks a photo
+   2. We immediately compress it (Canvas)
+   3. Upload to /api/survey/{id}/upload-photo in background
+   4. Set photoUploaded flag when done
+   5. Form POST sends no file — just the form fields
+═══════════════════════════════════════════════ */
+async function handlePhotoSelect(e) {
   const file = e.target.files[0];
   if (!file) return;
 
@@ -865,13 +1024,51 @@ function previewImg(e) {
     e.target.value = '';
     return;
   }
-  const p = document.getElementById('imgPreview');
-  p.src = URL.createObjectURL(file);
-  p.style.display = 'block';
-  markGroupError('photo_err', false);
-  document.getElementById('imgUploadBox').style.borderColor = 'var(--green-500)';
-}
 
+  // Show local preview immediately (before upload)
+  const previewEl = document.getElementById('imgPreview');
+  const existingEl = document.getElementById('existingPhoto');
+  if (existingEl) existingEl.style.display = 'none';
+  previewEl.src = URL.createObjectURL(file);
+  previewEl.style.display = 'block';
+
+  // Mark as uploading so Next button waits if tapped too fast
+  document.getElementById('photoUploaded').value = '';
+  setPhotoStatus('compressing');
+
+  try {
+    // Step 1: Compress
+    const compressed = await compressImage(file);
+    const sizeMB = (compressed.size / 1024 / 1024).toFixed(2);
+    console.log(`Photo compressed: ${(file.size/1024/1024).toFixed(2)} MB → ${sizeMB} MB`);
+
+    setPhotoStatus('uploading');
+
+    // Step 2: Upload in background
+    const formData = new FormData();
+    formData.append('photo', compressed, 'outlet.jpg');
+
+    const resp = await fetch(`/api/survey/${SURVEY_ID}/upload-photo`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error || 'Upload failed');
+
+    // Step 3: Mark done — clear the file input so form POST sends nothing
+    document.getElementById('photoUploaded').value = '1';
+    e.target.value = '';  // ← THIS is the key: Next sends no file, no waiting
+    setPhotoStatus('done');
+
+  } catch (err) {
+    console.error('Photo upload error:', err);
+    setPhotoStatus('error', err.message);
+    // Keep photoUploaded empty so validation will catch it
+    document.getElementById('photoUploaded').value = '';
+  }
+}
 
 /* ═══════════════════════════════════════════════
    BRAND RANK SYSTEM
@@ -889,13 +1086,12 @@ function updateRanks(cat) {
   const wrap = document.getElementById(cat + 'RankInputs');
   if (wrap) {
     wrap.innerHTML = '';
-    checked.slice(0, 3).forEach((cb, i) => {
+    checked.slice(0, 3).forEach((cb) => {
       const inp = document.createElement('input');
       inp.type = 'hidden'; inp.name = cat + '_rank'; inp.value = cb.value;
       wrap.appendChild(inp);
     });
   }
-  // Clear error when at least one selected
   if (checked.length > 0) markGroupError(cat + '_brands_err', false);
 }
 
@@ -903,7 +1099,6 @@ function updateRanks(cat) {
   const list = document.getElementById(cat + 'BrandList');
   if (list) updateRanks(cat);
 });
-
 
 /* ═══════════════════════════════════════════════
    STEP 3 — Heritage vs Industry ratio check
@@ -915,17 +1110,12 @@ function checkRatio(key) {
   if (warn) warn.classList.toggle('visible', her > 0 && ind > 0 && her > ind);
 }
 
-
 /* ═══════════════════════════════════════════════
    STEP 5 — No Supply logic
 ═══════════════════════════════════════════════ */
 function handleNoSupply(chanKey, reasonKey, cb) {
-  // If "No Supply" checked, uncheck all others; show reason panel
   const group = document.getElementById(chanKey + 'Group');
-  if (!group || !cb.checked) {
-    showPanel('panel_' + reasonKey, false);
-    return;
-  }
+  if (!group || !cb.checked) { showPanel('panel_' + reasonKey, false); return; }
   group.querySelectorAll('input[type=checkbox]').forEach(other => {
     if (other.value !== 'No Supply') other.checked = false;
   });
@@ -934,7 +1124,6 @@ function handleNoSupply(chanKey, reasonKey, cb) {
 }
 
 function handleChannelChange(chanKey) {
-  // If any real channel selected, uncheck "No Supply"
   const group = document.getElementById(chanKey + 'Group');
   if (!group) return;
   const anyReal = [...group.querySelectorAll('input[type=checkbox]')]
@@ -942,13 +1131,11 @@ function handleChannelChange(chanKey) {
   if (anyReal) {
     const noSup = group.querySelector('input[value="No Supply"]');
     if (noSup) noSup.checked = false;
-    // Determine reason key and hide
     const reasonKey = chanKey === 'fresh_channels' ? 'fresh_reason' : 'other_reason';
     showPanel('panel_' + reasonKey, false);
   }
   markGroupError(chanKey + '_err', false);
 }
-
 
 /* ═══════════════════════════════════════════════
    STEP 6 — Cooling asset toggle
@@ -959,82 +1146,73 @@ function handleCoolingAsset() {
   if (ownershipField) ownershipField.style.display = anyChecked ? '' : 'none';
 }
 
-
 /* ═══════════════════════════════════════════════
    VALIDATORS
 ═══════════════════════════════════════════════ */
 const phoneRegex = /^(\+91[\-\s]?)?0?(91)?[6-9]\d{9}$/;
-
 function validatePhone(val) {
   if (!val) return false;
-  const clean = val.replace(/[\s\-\(\)]/g, '');
-  return phoneRegex.test(clean);
+  return phoneRegex.test(val.replace(/[\s\-\(\)]/g, ''));
 }
 
 function validateStep1() {
-  let ok = true;
-  const errs = [];
+  let ok = true; const errs = [];
 
-  // Outlet name
   const outletName = document.getElementById('outlet_name');
   if (!outletName.value.trim() || outletName.value.trim().length < 3) {
-    markError('outlet_name', 'outlet_name_err', true);
-    ok = false; errs.push('Outlet Name');
+    markError('outlet_name', 'outlet_name_err', true); ok = false; errs.push('Outlet Name');
   } else { markError('outlet_name', 'outlet_name_err', false); }
 
-  // Owner name
   const ownerName = document.getElementById('owner_name');
   if (!ownerName.value.trim() || ownerName.value.trim().length < 3) {
-    markError('owner_name', 'owner_name_err', true);
-    ok = false; errs.push('Owner Name');
+    markError('owner_name', 'owner_name_err', true); ok = false; errs.push('Owner Name');
   } else { markError('owner_name', 'owner_name_err', false); }
 
-  // Mobile
   const mobile = document.getElementById('mobile');
   if (!validatePhone(mobile.value)) {
-    markError('mobile', 'mobile_err', true);
-    ok = false; errs.push('Mobile Number');
+    markError('mobile', 'mobile_err', true); ok = false; errs.push('Mobile Number');
   } else { markError('mobile', 'mobile_err', false); }
 
-  // WhatsApp (only if toggled off)
   const waWrap = document.getElementById('altWaWrap');
   if (waWrap && waWrap.style.display !== 'none') {
     const waNum = document.getElementById('whatsapp_number');
     if (waNum && waNum.value && !validatePhone(waNum.value)) {
-      markError('whatsapp_number', 'whatsapp_number_err', true);
-      ok = false; errs.push('WhatsApp Number');
+      markError('whatsapp_number', 'whatsapp_number_err', true); ok = false; errs.push('WhatsApp Number');
     } else { markError('whatsapp_number', 'whatsapp_number_err', false); }
   }
 
-  // FSSAI (optional but if provided must be 14 digits)
   const fssai = document.getElementById('fssai_number');
-  if (fssai && fssai.value.trim()) {
-    if (!/^\d{14}$/.test(fssai.value.trim())) {
-      markError('fssai_number', 'fssai_number_err', true);
-      ok = false; errs.push('FSSAI Number');
-    } else { markError('fssai_number', 'fssai_number_err', false); }
-  }
+  if (fssai && fssai.value.trim() && !/^\d{14}$/.test(fssai.value.trim())) {
+    markError('fssai_number', 'fssai_number_err', true); ok = false; errs.push('FSSAI Number');
+  } else if (fssai) { markError('fssai_number', 'fssai_number_err', false); }
 
-  // Area
   const area = document.getElementById('area');
   if (!area.value.trim() || area.value.trim().length < 3) {
-    markError('area', 'area_err', true);
-    ok = false; errs.push('Area / Locality');
+    markError('area', 'area_err', true); ok = false; errs.push('Area / Locality');
   } else { markError('area', 'area_err', false); }
 
-  // GPS
   const lat = document.getElementById('latInput');
   const lng = document.getElementById('lngInput');
   const gpsOk = lat && lat.value && lng && lng.value;
   markGroupError('gps_err', !gpsOk);
   if (!gpsOk) { ok = false; errs.push('GPS Location'); }
 
-  // Photo
-  const photoInput = document.getElementById('photoInput');
-  const existingPhoto = document.getElementById('existingPhoto');
-  const hasPhoto = (photoInput && photoInput.files.length > 0) || !!existingPhoto;
-  markGroupError('photo_err', !hasPhoto);
-  if (!hasPhoto) { ok = false; errs.push('Outlet Photo'); }
+  // Photo: check the hidden flag (set after bg upload) OR existing photo
+  const uploaded = document.getElementById('photoUploaded');
+  const hasPhoto = uploaded && uploaded.value === '1';
+
+  // If still uploading, block and show a helpful message
+  if (photoState === 'compressing' || photoState === 'uploading') {
+    ok = false;
+    errs.push('Photo (still uploading)');
+    markGroupError('photo_err', true);
+    document.getElementById('photo_err').textContent = '⏳ Please wait — photo is still uploading…';
+  } else if (!hasPhoto) {
+    ok = false; errs.push('Outlet Photo');
+    markGroupError('photo_err', true);
+  } else {
+    markGroupError('photo_err', false);
+  }
 
   return { ok, errs };
 }
@@ -1050,26 +1228,19 @@ function validateStep2() {
 function validateStep3() {
   let ok = true; const errs = [];
   const keys = ['milk_10','milk_other','curd_10','curd_other','paneer','ghee','buttermilk','icecream'];
-
   keys.forEach(k => {
     const ind = document.getElementById('ind_' + k);
     const her = document.getElementById('her_' + k);
     if (ind && ind.value !== '' && (isNaN(parseFloat(ind.value)) || parseFloat(ind.value) < 0)) {
-      markError('ind_' + k, 'ind_' + k + '_err', true);
-      ok = false;
+      markError('ind_' + k, 'ind_' + k + '_err', true); ok = false;
     } else if (ind) { markError('ind_' + k, 'ind_' + k + '_err', false); }
-
     if (her && her.value !== '' && (isNaN(parseFloat(her.value)) || parseFloat(her.value) < 0)) {
-      markError('her_' + k, 'her_' + k + '_err', true);
-      ok = false;
+      markError('her_' + k, 'her_' + k + '_err', true); ok = false;
     } else if (her) { markError('her_' + k, 'her_' + k + '_err', false); }
   });
-
-  // Ice cream availability required
   const icAvail = document.querySelector('input[name=icecream_available]:checked');
   markGroupError('icecream_available_err', !icAvail);
   if (!icAvail) { ok = false; errs.push('Ice Cream Availability'); }
-
   if (!ok && !errs.length) errs.push('Invalid numeric values');
   return { ok, errs };
 }
@@ -1088,74 +1259,53 @@ function validateStep4() {
 
 function validateStep5() {
   let ok = true; const errs = [];
-
-  // Direct supply required
   const ds = document.querySelector('input[name=direct_supply]:checked');
   markGroupError('direct_supply_err', !ds);
   if (!ds) { ok = false; errs.push('Direct Supply'); }
-
-  // Customer ID if yes
   if (ds && ds.value === 'yes') {
     const cid = document.getElementById('customer_id');
     if (!cid || !cid.value.trim()) {
-      markError('customer_id', 'customer_id_err', true);
-      ok = false; errs.push('Customer ID');
+      markError('customer_id', 'customer_id_err', true); ok = false; errs.push('Customer ID');
     } else { markError('customer_id', 'customer_id_err', false); }
   }
-
-  // Fresh channels
   const freshChecked = document.querySelectorAll('input[name=fresh_channels]:checked').length;
   markGroupError('fresh_channels_err', freshChecked === 0);
   if (freshChecked === 0) { ok = false; errs.push('Fresh Supply Channel'); }
-
-  // Fresh reason (if No Supply checked)
   const freshNoSup = document.querySelector('input[name=fresh_channels][value="No Supply"]:checked');
   if (freshNoSup) {
     const reason = document.querySelector('input[name=fresh_reason]:checked');
     markGroupError('fresh_reason_err', !reason);
     if (!reason) { ok = false; errs.push('Fresh Supply Reason'); }
   }
-
-  // Other channels
   const otherChecked = document.querySelectorAll('input[name=other_channels]:checked').length;
   markGroupError('other_channels_err', otherChecked === 0);
   if (otherChecked === 0) { ok = false; errs.push('Other Supply Channel'); }
-
-  // Other reason (if No Supply checked)
   const otherNoSup = document.querySelector('input[name=other_channels][value="No Supply"]:checked');
   if (otherNoSup) {
     const reason = document.querySelector('input[name=other_reason]:checked');
     markGroupError('other_reason_err', !reason);
     if (!reason) { ok = false; errs.push('Other Supply Reason'); }
   }
-
   return { ok, errs };
 }
 
 function validateStep6() {
   let ok = true; const errs = [];
-
-  // Space available required
   const sa = document.querySelector('input[name=space_available]:checked');
   markGroupError('space_available_err', !sa);
   if (!sa) { ok = false; errs.push('Space Available for Cooler'); }
-
-  // Ownership required if cooler assets selected
   const assetsChecked = document.querySelectorAll('input[name=cooling_assets]:checked').length;
   if (assetsChecked > 0) {
     const ownership = document.querySelector('input[name=cooler_ownership]:checked');
     markGroupError('cooler_ownership_err', !ownership);
     if (!ownership) { ok = false; errs.push('Cooler Ownership'); }
   }
-
-  // Cooler type required if interested = yes
   const interested = document.querySelector('input[name=cooler_interest]:checked');
   if (interested && interested.value === 'yes') {
     const ctype = document.querySelector('input[name=cooler_type]:checked');
     markGroupError('cooler_type_err', !ctype);
     if (!ctype) { ok = false; errs.push('Preferred Cooler Type'); }
   }
-
   return { ok, errs };
 }
 
@@ -1163,25 +1313,16 @@ function validateStep7() {
   let ok = true; const errs = [];
   const remarks = document.getElementById('se_remarks');
   if (remarks && remarks.value.length > 500) {
-    markGroupError('se_remarks_err', true);
-    ok = false; errs.push('Remarks too long');
+    markGroupError('se_remarks_err', true); ok = false; errs.push('Remarks too long');
   }
   return { ok, errs };
 }
 
-
 /* ═══════════════════════════════════════════════
    MAIN NAVIGATION HANDLER
 ═══════════════════════════════════════════════ */
-const validators = {
-  1: validateStep1,
-  2: validateStep2,
-  3: validateStep3,
-  4: validateStep4,
-  5: validateStep5,
-  6: validateStep6,
-  7: validateStep7,
-};
+const validators = { 1:validateStep1, 2:validateStep2, 3:validateStep3,
+                     4:validateStep4, 5:validateStep5, 6:validateStep6, 7:validateStep7 };
 
 function handleNext() {
   const validate = validators[STEP];
@@ -1189,12 +1330,16 @@ function handleNext() {
 
   const { ok, errs } = validate();
   if (!ok) {
-    const msg = errs.length
-      ? `Please fix: ${errs.slice(0,3).join(', ')}${errs.length > 3 ? ` +${errs.length-3} more` : ''}`
-      : 'Please fill all required fields';
-    showToast(msg, 'error');
+    // Special friendlier message when photo is still uploading
+    if (photoState === 'uploading' || photoState === 'compressing') {
+      showToast('⏳ Photo is still uploading, please wait…', 'warn');
+    } else {
+      const msg = errs.length
+        ? `Please fix: ${errs.slice(0,3).join(', ')}${errs.length > 3 ? ` +${errs.length-3} more` : ''}`
+        : 'Please fill all required fields';
+      showToast(msg, 'error');
+    }
     setTimeout(scrollToFirstError, 100);
-    // Shake the nav button
     const btn = document.getElementById('navNextBtn');
     btn.style.transform = 'translateX(-6px)';
     setTimeout(() => btn.style.transform = 'translateX(6px)', 80);
@@ -1203,13 +1348,13 @@ function handleNext() {
   }
 
   if (STEP === TOTAL) {
-    // Open confirm overlay instead of submitting directly
     document.getElementById('submitOverlay').classList.add('open');
     return;
   }
 
-  showToast('Step saved ✓', 'success', 1500);
-  setTimeout(() => document.getElementById('surveyForm').submit(), 300);
+  // Show loading state on Next button while form submits
+  setNextBtnLoading(true, 'Saving…');
+  setTimeout(() => document.getElementById('surveyForm').submit(), 150);
 }
 
 function closeOverlay() {
@@ -1222,42 +1367,32 @@ function doSubmit() {
   document.getElementById('surveyForm').submit();
 }
 
-// Close overlay on backdrop click
 document.getElementById('submitOverlay')?.addEventListener('click', function(e) {
   if (e.target === this) closeOverlay();
 });
 
-
 /* ═══════════════════════════════════════════════
-   INLINE REAL-TIME VALIDATION
-   (fires on blur so it's not annoying during typing)
+   INLINE REAL-TIME VALIDATION (on blur)
 ═══════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
-  // Text/tel inputs — validate on blur
   const realtimeFields = [
-    { id: 'outlet_name',      test: v => v.trim().length >= 3,      errId: 'outlet_name_err' },
-    { id: 'owner_name',       test: v => v.trim().length >= 3,      errId: 'owner_name_err' },
-    { id: 'mobile',           test: v => validatePhone(v),          errId: 'mobile_err' },
-    { id: 'whatsapp_number',  test: v => !v || validatePhone(v),    errId: 'whatsapp_number_err' },
-    { id: 'fssai_number',     test: v => !v || /^\d{14}$/.test(v.trim()), errId: 'fssai_number_err' },
-    { id: 'area',             test: v => v.trim().length >= 3,      errId: 'area_err' },
-    { id: 'customer_id',      test: v => v.trim().length > 0,       errId: 'customer_id_err' },
+    { id: 'outlet_name',     test: v => v.trim().length >= 3,           errId: 'outlet_name_err' },
+    { id: 'owner_name',      test: v => v.trim().length >= 3,           errId: 'owner_name_err' },
+    { id: 'mobile',          test: v => validatePhone(v),               errId: 'mobile_err' },
+    { id: 'whatsapp_number', test: v => !v || validatePhone(v),         errId: 'whatsapp_number_err' },
+    { id: 'fssai_number',    test: v => !v || /^\d{14}$/.test(v.trim()),errId: 'fssai_number_err' },
+    { id: 'area',            test: v => v.trim().length >= 3,           errId: 'area_err' },
+    { id: 'customer_id',     test: v => v.trim().length > 0,            errId: 'customer_id_err' },
   ];
 
   realtimeFields.forEach(({ id, test, errId }) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('blur', () => {
-      const fail = !test(el.value);
-      // Only show inline if field has been touched (has value or was already invalid)
-      if (el.value || el.classList.contains('invalid')) {
-        markError(id, errId, fail);
-      }
+      if (el.value || el.classList.contains('invalid')) markError(id, errId, !test(el.value));
     });
     el.addEventListener('input', () => {
-      if (el.classList.contains('invalid') && test(el.value)) {
-        markError(id, errId, false);
-      }
+      if (el.classList.contains('invalid') && test(el.value)) markError(id, errId, false);
     });
   });
 });

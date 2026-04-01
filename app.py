@@ -121,13 +121,10 @@ def init_db():
     );
     """)
     
-    # --- NEW CODE STARTS HERE ---
-    # Try to add the new column. If it's already there, just ignore the error and move on.
     try:
         db.execute("ALTER TABLE surveys ADD COLUMN fssai_number TEXT")
     except sqlite3.OperationalError:
         pass 
-    # --- NEW CODE ENDS HERE ---
     
     db.commit()
 
@@ -138,7 +135,6 @@ def init_db():
             "INSERT INTO users (username,password,full_name,employee_id,role) VALUES (?,?,?,?,?)",
             ('admin', generate_password_hash('admin123'), 'Admin User', 'ADM001', 'admin')
         )
-        # Seed a demo SE
         db.execute(
             "INSERT INTO users (username,password,full_name,employee_id,role,region) VALUES (?,?,?,?,?,?)",
             ('se001', generate_password_hash('se001'), 'Ravi Kumar', 'SE001', 'se', 'Hyderabad North')
@@ -250,7 +246,6 @@ def survey_step(survey_id, step):
     if not survey:
         flash('Survey not found.', 'error')
         return redirect(url_for('se_dashboard'))
-    # Security: SE can only edit their own surveys
     if session.get('role') != 'admin' and survey['se_id'] != session['user_id']:
         return redirect(url_for('se_dashboard'))
     if survey['status'] == 'submitted' and session.get('role') != 'admin':
@@ -269,7 +264,6 @@ def survey_step(survey_id, step):
                 [next_step, survey_id])
         return redirect(url_for('survey_step', survey_id=survey_id, step=next_step))
 
-    # Re-fetch after possible save
     survey = row_to_dict(query("SELECT * FROM surveys WHERE id=?", [survey_id], one=True))
     for json_col in ['industry_data','heritage_data','competition_data','supply_data','cooling_data']:
         try:
@@ -281,16 +275,21 @@ def survey_step(survey_id, step):
 def _save_step(survey_id, step, req):
     f = req.form
     if step == 1:
+        # Only process a new file upload if one was actually sent
+        # (background upload already saved it to DB, so file field may be empty)
         photo_filename = None
         file = req.files.get('photo')
         if file and file.filename and allowed_file(file.filename):
             ext = file.filename.rsplit('.',1)[1].lower()
             photo_filename = f"outlet_{survey_id[:8]}_{uuid.uuid4().hex[:6]}.{ext}"
             file.save(os.path.join(app.config['UPLOAD_FOLDER'], photo_filename))
-        # If no new photo, keep existing
+
+        # If no new file in this request, keep whatever is in DB
+        # (covers both: background-uploaded photo, and previously saved photo)
         if not photo_filename:
             existing = query("SELECT photo_filename FROM surveys WHERE id=?", [survey_id], one=True)
             photo_filename = existing['photo_filename'] if existing else None
+
         execute("""UPDATE surveys SET
             outlet_name=?, owner_name=?, mobile=?, whatsapp_enabled=?,
             whatsapp_number=?, area=?, latitude=?, longitude=?, photo_filename=?,
@@ -350,6 +349,39 @@ def _save_step(survey_id, step, req):
         execute("UPDATE surveys SET se_remarks=?, updated_at=datetime('now') WHERE id=?",
                 [f.get('se_remarks'), survey_id])
 
+# ──────────────────────────────────────────────
+# API — Background photo upload (NEW)
+# Compresses on client, uploads here immediately on photo select
+# so "Next" button doesn't have to wait for the upload.
+# ──────────────────────────────────────────────
+@app.route('/api/survey/<survey_id>/upload-photo', methods=['POST'])
+@login_required
+def upload_photo_bg(survey_id):
+    """Receives a compressed photo blob and saves it immediately.
+    Called in the background as soon as the SE picks a photo,
+    so the Next button has nothing to wait for."""
+    if session.get('role') != 'admin':
+        survey = query("SELECT se_id FROM surveys WHERE id=?", [survey_id], one=True)
+        if not survey or survey['se_id'] != session['user_id']:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+    file = request.files.get('photo')
+    if not file or not file.filename:
+        return jsonify({'error': 'No file provided'}), 400
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
+
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    filename = f"outlet_{survey_id[:8]}_{uuid.uuid4().hex[:6]}.{ext}"
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+    # Persist immediately so it survives even if the form is never submitted
+    execute("UPDATE surveys SET photo_filename=?, updated_at=datetime('now') WHERE id=?",
+            [filename, survey_id])
+
+    return jsonify({'ok': True, 'filename': filename})
+
+
 @app.route('/survey/<survey_id>/delete', methods=['POST'])
 @login_required
 def delete_survey(survey_id):
@@ -372,14 +404,12 @@ def reopen_survey(survey_id):
 @app.route('/admin')
 @admin_required
 def admin_dashboard():
-    # KPIs
     total_surveys   = query("SELECT COUNT(*) c FROM surveys", one=True)['c']
     submitted       = query("SELECT COUNT(*) c FROM surveys WHERE status='submitted'", one=True)['c']
     draft           = query("SELECT COUNT(*) c FROM surveys WHERE status='draft'", one=True)['c']
     total_se        = query("SELECT COUNT(*) c FROM users WHERE role='se' AND is_active=1", one=True)['c']
     active_today    = query("SELECT COUNT(DISTINCT se_id) c FROM surveys WHERE date(updated_at)=date('now')", one=True)['c']
 
-    # SE activity summary
     se_activity = query("""
         SELECT u.full_name, u.employee_id, u.region, u.last_login,
                COUNT(s.id) total, SUM(s.status='submitted') submitted,
@@ -392,7 +422,6 @@ def admin_dashboard():
     """)
     se_activity = [dict(r) for r in se_activity]
 
-    # Recent surveys
     recent = query("""
         SELECT s.id, s.outlet_name, s.area, s.outlet_type, s.status,
                s.step_reached, s.updated_at, u.full_name se_name
@@ -401,14 +430,12 @@ def admin_dashboard():
     """)
     recent = [dict(r) for r in recent]
 
-    # Outlet type breakdown
     type_breakdown = query("""
         SELECT outlet_type, COUNT(*) cnt FROM surveys
         WHERE outlet_type IS NOT NULL GROUP BY outlet_type ORDER BY cnt DESC LIMIT 10
     """)
     type_breakdown = [dict(r) for r in type_breakdown]
 
-    # Daily submission trend (last 7 days)
     daily_trend = query("""
         SELECT date(submitted_at) day, COUNT(*) cnt
         FROM surveys WHERE submitted_at > date('now','-7 days')
@@ -431,7 +458,6 @@ def edit_user(user_id):
     full_name = request.form.get('full_name','').strip()
     employee_id = request.form.get('employee_id','').strip()
     region = request.form.get('region','').strip()
-    
     execute("UPDATE users SET full_name=?, employee_id=?, region=? WHERE id=?",
             [full_name, employee_id, region, user_id])
     flash('SE details updated successfully.', 'success')
@@ -440,7 +466,6 @@ def edit_user(user_id):
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
 @admin_required
 def delete_user(user_id):
-    # Prevent the admin from deleting themselves
     user = query("SELECT role FROM users WHERE id=?", [user_id], one=True)
     if user and user['role'] != 'admin':
         execute("DELETE FROM users WHERE id=?", [user_id])
@@ -552,7 +577,6 @@ def export_excel():
 
     wb = openpyxl.Workbook()
 
-    # ── Sheet 1: Summary ──
     ws1 = wb.active
     ws1.title = "Survey Summary"
     header_fill  = PatternFill("solid", fgColor="1B5E20")
@@ -630,13 +654,12 @@ def export_excel():
             cell.fill = fill
             cell.border = thin
             cell.alignment = Alignment(vertical='center')
-            if ci == 5:  # Status
+            if ci == 5:
                 cell.font = Font(bold=True,
                     color="1B5E20" if str(val)=='SUBMITTED' else "E65100")
 
     ws1.freeze_panes = 'A2'
 
-    # ── Sheet 2: SE Performance ──
     ws2 = wb.create_sheet("SE Performance")
     se_perf = query("""
         SELECT u.full_name, u.employee_id, u.region, u.last_login,
@@ -667,7 +690,6 @@ def export_excel():
             cell.alignment = Alignment(vertical='center')
     ws2.freeze_panes = 'A2'
 
-    # Output
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
     fname = f"Heritage_Outlet_Survey_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
@@ -675,21 +697,17 @@ def export_excel():
                      as_attachment=True, download_name=fname)
 
 # ──────────────────────────────────────────────
-# API — Geo autocomplete
+# API — Autosave
 # ──────────────────────────────────────────────
 @app.route('/api/survey/<survey_id>/autosave', methods=['POST'])
 @login_required
 def autosave(survey_id):
     data = request.get_json()
     step = data.get('step', 1)
-    
-    # NEW: Check if the user actually owns this survey before saving
     if session.get('role') != 'admin':
         survey = query("SELECT se_id FROM surveys WHERE id=?", [survey_id], one=True)
         if not survey or survey['se_id'] != session['user_id']:
             return jsonify({'error': 'Unauthorized'}), 403
-
-    # Lightweight autosave just updates updated_at
     execute("UPDATE surveys SET updated_at=datetime('now'), step_reached=MAX(step_reached,?) WHERE id=?",
             [step, survey_id])
     return jsonify({'ok': True})
