@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Manage SEs — Admin{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <aside class="sidebar">
+    <div class="sidebar-section">Main</div>
+    <a href="/admin" class="sidebar-link"><span class="icon">📊</span>Dashboard</a>
+    <a href="/admin/surveys" class="sidebar-link"><span class="icon">📋</span>All Surveys</a>
+    <div class="sidebar-section" style="margin-top:8px">Management</div>
+    <a href="/admin/users" class="sidebar-link active"><span class="icon">👥</span>SE Accounts</a>
+    <div class="sidebar-section" style="margin-top:8px">Export</div>
+    <a href="/admin/export" class="sidebar-link"><span class="icon">📥</span>Export Excel</a>
+    <div class="sidebar-section" style="margin-top:8px">Account</div>
+    <a href="/logout" class="sidebar-link"><span class="icon">🚪</span>Logout</a>
+  </aside>
+
+  <div class="admin-content">
+    <div style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <h1 style="font-size:20px;font-weight:800;color:var(--green-800)">👥 Sales Executive Accounts</h1>
+      <button class="btn btn-primary" onclick="document.getElementById('addModal').classList.add('open')">
+        ➕ Add New SE
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>SE Name</th><th>Username</th><th>Emp ID</th><th>Region</th>
+              <th>Surveys</th><th>Submitted</th><th>Last Login</th><th>Status</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td style="font-weight:700">{{ u.full_name }}</td>
+              <td><code style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">{{ u.username }}</code></td>
+              <td>{{ u.employee_id or '—' }}</td>
+              <td>{{ u.region or '—' }}</td>
+              <td style="font-weight:700">{{ u.total_surveys or 0 }}</td>
+              <td style="color:var(--green-700);font-weight:700">{{ u.submitted or 0 }}</td>
+              <td style="font-size:12px;color:var(--text-sub)">{{ (u.last_login or 'Never')[:16] }}</td>
+              <td>
+                <span class="badge {% if u.is_active %}badge-active{% else %}badge-inactive{% endif %}">
+                  {{ 'Active' if u.is_active else 'Inactive' }}
+                </span>
+              </td>
+              <td>
+                <div style="display:flex;gap:6px">
+                  <form method="POST" action="/admin/users/{{ u.id }}/toggle" style="margin:0;">
+                    <button type="submit" class="btn btn-ghost btn-sm" title="{{ 'Deactivate' if u.is_active else 'Activate' }}">
+                      {{ '🔴' if u.is_active else '🟢' }}
+                    </button>
+                  </form>
+                  
+                  <button class="btn btn-ghost btn-sm" 
+                          data-id="{{ u.id }}" 
+                          data-name="{{ u.full_name }}" 
+                          data-emp="{{ u.employee_id or '' }}" 
+                          data-reg="{{ u.region or '' }}" 
+                          onclick="openEditModal(this)" title="Edit SE">✏️</button>
+                  
+                  <button class="btn btn-ghost btn-sm" onclick="openResetModal({{ u.id }}, '{{ u.full_name }}')" title="Reset Password">🔑</button>
+
+                  <form method="POST" action="/admin/users/{{ u.id }}/delete" style="margin:0;" onsubmit="return confirm('WARNING: Are you sure you want to permanently delete this SE?');">
+                    <button type="submit" class="btn btn-ghost btn-sm" title="Delete SE">🗑</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9">
+              <div class="empty-state" style="padding:40px">
+                <div class="icon">👥</div>
+                <h3>No SEs yet</h3>
+                <p>Add your first Sales Executive above.</p>
+              </div>
+            </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div class="modal-title">➕ Add New SE</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('addModal').classList.remove('open')">✕</button>
+    </div>
+    <form method="POST" action="/admin/users/add">
+      <div class="field">
+        <label class="field-label">Full Name <span class="req">*</span></label>
+        <input type="text" name="full_name" placeholder="SE Full Name" required />
+      </div>
+      <div class="field">
+        <label class="field-label">Username <span class="req">*</span> <span class="hint">(used to login)</span></label>
+        <input type="text" name="username" placeholder="e.g. se002" autocapitalize="none" required />
+      </div>
+      <div class="field">
+        <label class="field-label">Password <span class="req">*</span></label>
+        <input type="text" name="password" placeholder="Min 4 characters" required />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <label class="field-label">Employee ID</label>
+          <input type="text" name="employee_id" placeholder="SE001" />
+        </div>
+        <div class="field">
+          <label class="field-label">Region / Zone</label>
+          <input type="text" name="region" placeholder="e.g. Hyd North" />
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:6px">
+        <button type="button" class="btn btn-ghost btn-full" onclick="document.getElementById('addModal').classList.remove('open')">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-full">Add SE</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div class="modal-title">✏️ Edit SE Details</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('editModal').classList.remove('open')">✕</button>
+    </div>
+    <form method="POST" id="editForm">
+      <div class="field">
+        <label class="field-label">Full Name <span class="req">*</span></label>
+        <input type="text" name="full_name" id="editName" required />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <label class="field-label">Employee ID</label>
+          <input type="text" name="employee_id" id="editEmp" />
+        </div>
+        <div class="field">
+          <label class="field-label">Region / Zone</label>
+          <input type="text" name="region" id="editReg" />
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:6px">
+        <button type="button" class="btn btn-ghost btn-full" onclick="document.getElementById('editModal').classList.remove('open')">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-full">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="resetModal">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div class="modal-title">🔑 Reset Password</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('resetModal').classList.remove('open')">✕</button>
+    </div>
+    <p style="font-size:13px;color:var(--text-sub);margin-bottom:16px">Resetting password for: <strong id="resetName"></strong></p>
+    <form method="POST" id="resetForm">
+      <div class="field">
+        <label class="field-label">New Password <span class="req">*</span></label>
+        <input type="text" name="new_password" placeholder="Enter new password" required />
+      </div>
+      <div style="display:flex;gap:10px;margin-top:6px">
+        <button type="button" class="btn btn-ghost btn-full" onclick="document.getElementById('resetModal').classList.remove('open')">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-full">Reset Password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// Logic for Password Reset
+function openResetModal(userId, name) {
+  document.getElementById('resetName').textContent = name;
+  document.getElementById('resetForm').action = '/admin/users/' + userId + '/reset-password';
+  document.getElementById('resetModal').classList.add('open');
+}
+
+// Logic for Editing SE Details
+function openEditModal(btn) {
+  document.getElementById('editForm').action = '/admin/users/' + btn.dataset.id + '/edit';
+  document.getElementById('editName').value = btn.dataset.name;
+  document.getElementById('editEmp').value = btn.dataset.emp;
+  document.getElementById('editReg').value = btn.dataset.reg;
+  document.getElementById('editModal').classList.add('open');
+}
+</script>
+{% endblock %}

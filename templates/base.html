@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="theme-color" content="#1B5E20"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Heritage Survey"/>
+<link rel="manifest" href="/static/manifest.json"/>
+<link rel="icon" href="/static/icons/icon-192.png"/>
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png"/>
+<title>{% block title %}Heritage Survey{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/static/css/style.css"/>
+{% block head %}{% endblock %}
+</head>
+<body>
+
+{% if session.get('user_id') %}
+<!-- Top Nav -->
+<nav class="topnav">
+  <a href="/" class="nav-brand" style="text-decoration: none;">
+    <div class="nav-logo">
+      <img src="/static/icons/heritage-logo.png" alt="Heritage Logo" />
+    </div>
+    <div>
+      <div class="nav-title">Heritage Survey</div>
+      <div class="nav-subtitle">OUTLET INTELLIGENCE</div>
+    </div>
+  </a>
+  
+  <div class="nav-right">
+    <span class="nav-badge {% if session.get('role')=='admin' %}admin{% endif %}">
+      {% if session.get('role')=='admin' %}⚙ Admin{% else %}{{ session.get('name','SE')|truncate(12,True,'') }}{% endif %}
+    </span>
+    <a href="/logout" class="nav-btn">Logout</a>
+  </div>
+</nav>
+
+
+{% endif %}
+
+<!-- Flash Messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="flash-wrap">
+    {% for cat, msg in messages %}
+    <div class="flash {{ cat }}">
+      {% if cat=='success' %}✅{% elif cat=='error' %}❌{% elif cat=='warning' %}⚠️{% else %}ℹ️{% endif %}
+      {{ msg }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}
+
+{% block content %}{% endblock %}
+
+<script>
+function toggleMobileNav() {
+  document.getElementById('mobileNav').classList.toggle('open');
+}
+function closeMobileNavOnOverlay(e) {
+  if (e.target.classList.contains('mobile-nav-overlay') || e.target.classList.contains('mobile-nav')) {
+    document.getElementById('mobileNav').classList.remove('open');
+  }
+}
+// Register service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(()=>{});
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

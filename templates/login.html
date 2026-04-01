@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="theme-color" content="#1B5E20"/>
+<title>Login — Heritage Survey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-circle">
+  <img src="/static/icons/heritage-logo.png" alt="Heritage Logo" />
+</div>
+      <h1>Heritage Foods</h1>
+      <p>Outlet Survey Tool - Field App</p>
+    </div>
+
+    {% if error %}
+    <div class="flash error" style="margin-bottom:16px">❌ {{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/login">
+      <div class="field">
+        <label class="field-label" for="username">Username / Employee ID</label>
+        <input type="text" id="username" name="username" placeholder="e.g. se001"
+               autocomplete="username" autocapitalize="none" required />
+      </div>
+      <div class="field">
+        <label class="field-label" for="password">Password</label>
+        <div style="position:relative">
+          <input type="password" id="password" name="password" placeholder="••••••••"
+                 autocomplete="current-password" required />
+          <button type="button" onclick="togglePw()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-sub)" id="pwToggle">👁</button>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px;padding:14px;font-size:15px">
+        Sign In →
+      </button>
+    </form>
+
+
+  </div>
+
+  <p class="login-footer">© 2024 Heritage Foods Ltd.</p>
+</div>
+<script>
+function togglePw() {
+  const f = document.getElementById('password');
+  const b = document.getElementById('pwToggle');
+  if (f.type === 'password') { f.type = 'text'; b.textContent = '🙈'; }
+  else { f.type = 'password'; b.textContent = '👁'; }
+}
+</script>
+</body>
+</html>

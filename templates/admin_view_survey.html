@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Survey — {{ survey.outlet_name or 'Detail' }}{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <aside class="sidebar">
+    <div class="sidebar-section">Main</div>
+    <a href="/admin" class="sidebar-link"><span class="icon">📊</span>Dashboard</a>
+    <a href="/admin/surveys" class="sidebar-link active"><span class="icon">📋</span>All Surveys</a>
+    <div class="sidebar-section" style="margin-top:8px">Management</div>
+    <a href="/admin/users" class="sidebar-link"><span class="icon">👥</span>SE Accounts</a>
+    <div class="sidebar-section" style="margin-top:8px">Export</div>
+    <a href="/admin/export" class="sidebar-link"><span class="icon">📥</span>Export Excel</a>
+    <div class="sidebar-section" style="margin-top:8px">Account</div>
+    <a href="/logout" class="sidebar-link"><span class="icon">🚪</span>Logout</a>
+  </aside>
+
+  <div class="admin-content">
+    <div style="margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <a href="/admin/surveys" class="btn btn-ghost btn-sm">← Back</a>
+      <h1 style="font-size:18px;font-weight:800;color:var(--green-800)">
+        {{ survey.outlet_name or '(Untitled Survey)' }}
+      </h1>
+      <span class="badge badge-{{ survey.status }}">{{ survey.status }}</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        {% if survey.status == 'submitted' %}
+        <form method="POST" action="/survey/{{ survey.id }}/reopen">
+          <button type="submit" class="btn btn-ghost btn-sm">🔓 Reopen</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">👤 Submitted By</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">SE Name</div><div style="font-weight:700">{{ survey.se_name }}</div></div>
+        <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">Emp ID</div><div style="font-weight:700">{{ survey.employee_id }}</div></div>
+        <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">Region</div><div style="font-weight:700">{{ survey.region or '—' }}</div></div>
+        <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">Submitted</div><div style="font-weight:700">{{ (survey.submitted_at or '—')[:16] }}</div></div>
+      </div>
+    </div>
+
+    <div class="view-survey-grid">
+      {% if survey.photo_filename %}
+      <div class="card">
+        <div class="card-title">📷 Outlet Photo</div>
+        <img src="/static/uploads/{{ survey.photo_filename }}" class="outlet-photo" alt="Outlet" style="width:100%; border-radius:8px;"/>
+      </div>
+      {% endif %}
+
+      <div class="card">
+        <div class="card-title">📍 Basic Details</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          {% for lbl, val in [
+            ('Outlet Name', survey.outlet_name),
+            ('Owner', survey.owner_name),
+            ('Mobile', survey.mobile),
+            ('WhatsApp', 'Yes' if survey.whatsapp_enabled else 'No'),
+            ('Area', survey.area),
+            ('Outlet Type', survey.outlet_type),
+            ('GPS', (survey.latitude|string + ', ' + survey.longitude|string) if survey.latitude else '—'),
+          ] %}
+          <div>
+            <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--text-sub)">{{ lbl }}</div>
+            <div style="font-size:13px;font-weight:600;margin-top:2px">{{ val or '—' }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">📊 Category Size vs Heritage Presence</div>
+      {% set products = [
+        ('milk_10','Milk ₹10 Pack','LPD'),
+        ('milk_other','Milk Other Pack','LPD'),
+        ('curd_10','Curd ₹10 Pack','Kg/Day'),
+        ('curd_other','Curd Other Pack','Kg/Day'),
+        ('paneer','Paneer','Kg/Week'),
+        ('ghee','Ghee','Kg/Month'),
+        ('buttermilk','Buttermilk','Units/Day'),
+        ('icecream','Ice Cream','₹/Month'),
+      ] %}
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Product</th><th>Unit</th><th>Market Total</th><th>Heritage Share</th><th>Share %</th></tr></thead>
+          <tbody>
+            {% for key, label, unit in products %}
+            {% set ind_val = survey.industry_data.get(key, '') %}
+            {% set her_val = survey.heritage_data.get(key, '') %}
+            
+            {% set ind_num = ind_val | float(default=0) %}
+            {% set her_num = her_val | float(default=0) %}
+            {% set pct = ((her_num / ind_num) * 100)|round|int if ind_num > 0 else 0 %}
+            <tr>
+              <td style="font-weight:600">{{ label }}</td>
+              <td style="font-size:11px;color:var(--text-sub)">{{ unit }}</td>
+              <td>{{ ind_val or '—' }}</td>
+              <td style="color:var(--green-700);font-weight:700">{{ her_val or '—' }}</td>
+              <td>
+                {% if ind_num > 0 %}
+                <div style="display:flex;align-items:center;gap:6px">
+                  <div style="flex:1;height:5px;background:var(--border);border-radius:3px;min-width:50px">
+                    <div style="height:100%;width:{{ [pct,100]|min }}%;background:var(--green-500);border-radius:3px"></div>
+                  </div>
+                  <span style="font-size:11px;font-weight:800;color:var(--green-800)">{{ pct }}%</span>
+                </div>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">🏆 Competition Mapping</div>
+      <div class="view-survey-comp-grid">
+        {% for cat, title in [('milk','🥛 Milk'),('curd','🍶 Curd'),('paneer','🧀 Paneer')] %}
+        <div>
+          <div style="font-size:12px;font-weight:800;color:var(--green-700);margin-bottom:8px">{{ title }}</div>
+          {% set brands = survey.competition_data.get(cat+'_brands',[]) %}
+          {% set ranks  = survey.competition_data.get(cat+'_rank',[]) %}
+          {% if brands %}
+          <div style="display:flex;flex-wrap:wrap;gap:5px">
+            {% for b in brands %}
+            <span style="font-size:11px;padding:3px 9px;border-radius:12px;border:1px solid var(--border);font-weight:600;background:var(--surface2)">
+              {% if b in ranks %}
+              <span style="background:var(--gold);color:#fff;width:14px;height:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;margin-right:3px">{{ ranks.index(b)+1 }}</span>
+              {% endif %}
+              {{ b }}
+            </span>
+            {% endfor %}
+          </div>
+          {% else %}<span style="color:var(--text-sub);font-size:12px">—</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="view-survey-grid">
+      <div class="card">
+        <div class="card-title">🚚 Supply & Distribution</div>
+        {% set sup = survey.supply_data %}
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+          <div><span style="font-weight:700">Direct Supply:</span> {{ sup.get('direct_supply','—')|upper }}</div>
+          {% if sup.get('customer_id') %}<div><span style="font-weight:700">Customer ID:</span> {{ sup.customer_id }}</div>{% endif %}
+          <div><span style="font-weight:700">Fresh:</span> {{ (sup.get('fresh_channels') or ['—'])|join(', ') }}</div>
+          <div><span style="font-weight:700">Other:</span> {{ (sup.get('other_channels') or ['—'])|join(', ') }}</div>
+          {% if sup.get('ic_distributor') %}<div><span style="font-weight:700">IC Distributor:</span> {{ sup.ic_distributor }}</div>{% endif %}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">❄️ Cooling</div>
+        {% set cool = survey.cooling_data %}
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+          <div><span style="font-weight:700">Assets:</span> {{ (cool.get('assets') or ['None'])|join(', ') }}</div>
+          <div><span style="font-weight:700">Ownership:</span> {{ cool.get('ownership','—')|title }}</div>
+          <div><span style="font-weight:700">Interested:</span> {{ cool.get('interested','—')|title }}</div>
+          {% if cool.get('preferred_type') %}<div><span style="font-weight:700">Preferred:</span> {{ cool.preferred_type }}</div>{% endif %}
+          {% if cool.get('space_available') %}<div><span style="font-weight:700">Space:</span> {{ cool.space_available|title }}</div>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if survey.se_remarks %}
+    <div class="card">
+      <div class="card-title">💬 SE Remarks</div>
+      <p style="font-size:14px;line-height:1.6;color:var(--text-mid)">{{ survey.se_remarks }}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

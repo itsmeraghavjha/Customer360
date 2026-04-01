@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}My Surveys — Heritage{% endblock %}
+{% block content %}
+<div class="page-sm" style="padding-bottom:80px">
+
+  <!-- Welcome -->
+  <div style="margin-bottom:20px">
+    <h2 style="font-size:20px;font-weight:800;color:var(--green-800)">
+      👋 Hello, {{ user.full_name.split()[0] }}!
+    </h2>
+    <p style="font-size:13px;color:var(--text-sub);margin-top:4px;font-weight:600">
+      {{ user.region or 'Field Sales' }} · {{ user.employee_id or '' }}
+    </p>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+    <div class="stat-card">
+      <div class="stat-val">{{ stats.total }}</div>
+      <div class="stat-label">Total</div>
+      <div class="stat-icon">📋</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" style="color:var(--green-700)">{{ stats.submitted }}</div>
+      <div class="stat-label">Submitted</div>
+      <div class="stat-icon">✅</div>
+    </div>
+    <div class="stat-card gold">
+      <div class="stat-val" style="color:#92400E">{{ stats.draft }}</div>
+      <div class="stat-label">Drafts</div>
+      <div class="stat-icon">✏️</div>
+    </div>
+  </div>
+
+  <!-- New Survey CTA -->
+  <a href="/survey/new" class="btn btn-primary btn-full" style="padding:15px;font-size:15px;margin-bottom:20px;border-radius:var(--radius)">
+    ➕ &nbsp; Start New Survey
+  </a>
+
+  <!-- Surveys list -->
+  {% if surveys %}
+  <h3 style="font-size:13px;font-weight:800;color:var(--text-sub);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">My Surveys</h3>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    {% for s in surveys %}
+    <div class="survey-card">
+      <div class="survey-card-header">
+        <div>
+          <div class="survey-card-title">
+            {{ s.outlet_name or '(Untitled Survey)' }}
+          </div>
+          <div class="survey-card-sub">
+            {{ s.area or '—' }}{% if s.outlet_type %} · {{ s.outlet_type }}{% endif %}
+          </div>
+        </div>
+        <span class="badge badge-{{ s.status }}">{{ s.status }}</span>
+      </div>
+
+      <!-- Step progress mini -->
+      <div>
+        <div class="step-mini-pills">
+          {% for i in range(1,8) %}
+          <div class="step-mini-pill {% if i < s.step_reached %}done{% elif i == s.step_reached %}active{% endif %}"></div>
+          {% endfor %}
+        </div>
+        <div style="font-size:11px;color:var(--text-sub);font-weight:600;margin-top:4px">
+          Step {{ s.step_reached }}/7 completed
+        </div>
+      </div>
+
+      <div class="survey-card-meta">
+        <span>🕐 {{ s.updated_at[:16] if s.updated_at else '—' }}</span>
+        {% if s.submitted_at %}<span>✅ {{ s.submitted_at[:10] }}</span>{% endif %}
+      </div>
+
+      <div class="survey-card-actions">
+        {% if s.status == 'draft' %}
+        <a href="/survey/{{ s.id }}/step/{{ s.step_reached }}" class="btn btn-primary btn-sm">
+          ✏️ Continue
+        </a>
+        {% else %}
+        <a href="/survey/{{ s.id }}/step/1" class="btn btn-outline btn-sm">
+          👁 View
+        </a>
+        {% endif %}
+        {% if s.status == 'draft' %}
+        <form method="POST" action="/survey/{{ s.id }}/delete" onsubmit="return confirm('Delete this survey?')">
+          <button type="submit" class="btn btn-ghost btn-sm">🗑 Delete</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <div class="empty-state">
+    <div class="icon">📋</div>
+    <h3>No surveys yet</h3>
+    <p>Tap "Start New Survey" above to begin capturing outlet data.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

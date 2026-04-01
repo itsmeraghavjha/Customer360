@@ -1,0 +1,1265 @@
+{% extends "base.html" %}
+{% block title %}Survey — Step {{ step }}/{{ total_steps }}{% endblock %}
+
+{% block head %}
+<style>
+  body { padding-bottom: 80px; }
+  .page-sm { padding-top: 24px; }
+  .survey-card-wrapper { margin-bottom: 24px; }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  /* ── Validation styles ── */
+  .field-error {
+    font-size: 11px;
+    color: #DC2626;
+    font-weight: 700;
+    margin-top: 5px;
+    display: none;
+    align-items: center;
+    gap: 4px;
+  }
+  .field-error.visible { display: flex; }
+  .field-error::before { content: '⚠'; font-size: 10px; }
+
+  input.invalid,
+  textarea.invalid,
+  select.invalid {
+    border-color: #DC2626 !important;
+    background: #FFF5F5 !important;
+  }
+  input.valid,
+  textarea.valid {
+    border-color: #16A34A !important;
+  }
+
+  .chip-grid.invalid-group .chip-opt label,
+  .brand-list.invalid-group .brand-chip label,
+  .yn-group.invalid-group .yn-opt label,
+  .channel-chips.invalid-group .ch-chip label,
+  .cooler-grid.invalid-group .cooler-card label {
+    border-color: #DC2626 !important;
+  }
+
+  /* ── Toast notification ── */
+  #validationToast {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: #1F2937;
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: 0 4px 24px rgba(0,0,0,.35);
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity .25s, transform .25s;
+    pointer-events: none;
+    white-space: nowrap;
+    max-width: 92vw;
+    text-align: center;
+  }
+  #validationToast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  #validationToast.error  { background: #DC2626; }
+  #validationToast.success{ background: #16A34A; }
+  #validationToast.warn   { background: #D97706; }
+
+  /* ── Confirm submit overlay ── */
+  #submitOverlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.55);
+    z-index: 10000;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  #submitOverlay.open { display: flex; }
+  .submit-sheet {
+    background: var(--surface, #fff);
+    border-radius: 20px 20px 0 0;
+    padding: 28px 24px 40px;
+    width: 100%;
+    max-width: 480px;
+    animation: slideUp .25s ease;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  .submit-sheet h3 { margin: 0 0 8px; font-size: 18px; }
+  .submit-sheet p  { font-size: 13px; color: var(--text-sub, #6B7280); margin: 0 0 20px; }
+  .submit-actions  { display: flex; gap: 10px; }
+  .submit-actions .btn { flex: 1; }
+
+  /* ── GPS badge ── */
+  .geo-status.captured .val { color: #16A34A; font-weight: 700; }
+
+  /* ── Progress bar highlight ── */
+  .step-pill.error { background: #DC2626 !important; }
+
+  /* ── Heritage vs Industry warning ── */
+  .ratio-warn {
+    font-size: 10px;
+    color: #D97706;
+    font-weight: 700;
+    margin-top: 3px;
+    display: none;
+  }
+  .ratio-warn.visible { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Toast -->
+<div id="validationToast"></div>
+
+<!-- Submit confirm overlay (Step 7 only) -->
+<div id="submitOverlay">
+  <div class="submit-sheet">
+    <h3>🚀 Submit Survey?</h3>
+    <p>Once submitted this survey will be locked. Please confirm all details are correct.</p>
+    <div class="submit-actions">
+      <button class="btn btn-ghost" onclick="closeOverlay()">Go Back</button>
+      <button class="btn btn-primary" id="confirmSubmitBtn" onclick="doSubmit()">Yes, Submit</button>
+    </div>
+  </div>
+</div>
+
+<!-- Progress Bar -->
+<div class="progress-bar-wrap">
+  <div class="progress-inner">
+    <div class="step-pills">
+      {% for i in range(1, total_steps+1) %}
+      <div class="step-pill {% if i < step %}done{% elif i == step %}active{% endif %}"></div>
+      {% endfor %}
+    </div>
+    <div class="progress-label">
+      <strong>Step {{ step }} of {{ total_steps }}</strong> —
+      {% set labels = ['Outlet Details','Classification','Category Size','Competition','Distribution','Cooling','Review & Submit'] %}
+      {{ labels[step-1] }}
+      {% if survey.status == 'submitted' %}
+      <span class="badge badge-submitted" style="margin-left:8px">Submitted</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="page-sm">
+<form method="POST" action="/survey/{{ survey.id }}/step/{{ step }}" enctype="multipart/form-data"
+      id="surveyForm" novalidate>
+
+<!-- ══════════ STEP 1 ══════════ -->
+{% if step == 1 %}
+<div class="card survey-card-wrapper">
+  <div class="card-title">📍 Outlet Basic Details</div>
+
+  <div class="field">
+    <label class="field-label">Outlet Name <span class="req">*</span></label>
+    <input type="text" name="outlet_name" id="outlet_name"
+           placeholder="e.g. Sri Balaji Grocery"
+           value="{{ survey.outlet_name or '' }}"
+           autocomplete="organization"
+           data-validate="required|minlen:3|maxlen:100" />
+    <div class="field-error" id="outlet_name_err">Outlet name is required (min 3 characters)</div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Owner / Contact Name <span class="req">*</span></label>
+    <input type="text" name="owner_name" id="owner_name"
+           placeholder="Owner's full name"
+           value="{{ survey.owner_name or '' }}"
+           autocomplete="name"
+           data-validate="required|minlen:3|maxlen:80" />
+    <div class="field-error" id="owner_name_err">Owner name is required (min 3 characters)</div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Mobile Number <span class="req">*</span></label>
+    <input type="tel" name="mobile" id="mobile"
+           placeholder="+91 98765 43210"
+           value="{{ survey.mobile or '' }}"
+           autocomplete="tel"
+           data-validate="required|phone" />
+    <div class="field-error" id="mobile_err">Enter a valid 10-digit mobile number</div>
+  </div>
+
+  <div class="field">
+    <label class="field-label" style="margin-bottom:8px">WhatsApp Enabled?</label>
+    <div class="toggle-row" style="background:var(--surface2);padding:12px 14px;border-radius:var(--radius-sm);border:2px solid var(--border)">
+      <div>
+        <div style="font-size:13px;font-weight:700">Same number has WhatsApp</div>
+        <div style="font-size:11px;color:var(--text-sub);margin-top:2px">Toggle off to enter alternate number</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" name="whatsapp_enabled" value="1" id="waToggle"
+               {% if survey.whatsapp_enabled != 0 %}checked{% endif %} onchange="toggleWa(this)"/>
+        <span class="slider"></span>
+      </label>
+    </div>
+    <input type="hidden" name="whatsapp_enabled" value="0" />
+  </div>
+
+  <div class="field" id="altWaWrap" style="{{ '' if survey.whatsapp_enabled == 0 else 'display:none' }}">
+    <label class="field-label">WhatsApp Number <span class="hint">(if different)</span></label>
+    <input type="tel" name="whatsapp_number" id="whatsapp_number"
+           placeholder="+91 XXXXX XXXXX"
+           value="{{ survey.whatsapp_number or '' }}"
+           data-validate="phone_optional" />
+    <div class="field-error" id="whatsapp_number_err">Enter a valid 10-digit WhatsApp number</div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">FSSAI Number <span class="hint">(Optional)</span></label>
+    <input type="text" name="fssai_number" id="fssai_number"
+           placeholder="14-digit FSSAI registration"
+           value="{{ survey.fssai_number or '' }}"
+           inputmode="numeric"
+           data-validate="fssai_optional" />
+    <div class="field-error" id="fssai_number_err">FSSAI must be exactly 14 digits if provided</div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Area / Locality <span class="req">*</span></label>
+    <input type="text" name="area" id="area"
+           placeholder="e.g. Kukatpally, Hyderabad"
+           value="{{ survey.area or '' }}"
+           data-validate="required|minlen:3|maxlen:100" />
+    <div class="field-error" id="area_err">Area / Locality is required</div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">GPS Location <span class="req">*</span> <span class="hint">Auto-capture</span></label>
+    <div class="geo-box" id="geoBox">
+      <div style="font-size:28px">📍</div>
+      <div class="geo-status {% if survey.latitude %}captured{% endif %}" id="geoStatus">
+        <div class="lbl" id="geoLabel">
+          {% if survey.latitude %}✅ Location Captured{% else %}Location not captured{% endif %}
+        </div>
+        <div class="val" id="geoVal">
+          {% if survey.latitude %}{{ survey.latitude }}, {{ survey.longitude }}
+          {% else %}Tap button to capture GPS{% endif %}
+        </div>
+      </div>
+      <input type="hidden" name="latitude"  id="latInput"  value="{{ survey.latitude or '' }}" />
+      <input type="hidden" name="longitude" id="lngInput"  value="{{ survey.longitude or '' }}" />
+      <button type="button" class="btn btn-primary btn-sm" id="geoBtn" onclick="captureGeo()">
+        {% if survey.latitude %}Re-capture{% else %}Capture{% endif %}
+      </button>
+    </div>
+    <div class="field-error" id="gps_err">GPS location is required — please tap Capture</div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Outlet Photo <span class="req">*</span> <span class="hint">Hoarding must be visible</span></label>
+    {% if survey.photo_filename %}
+    <img src="/static/uploads/{{ survey.photo_filename }}" class="img-preview"
+         id="existingPhoto" style="display:block;margin-bottom:10px"/>
+    {% endif %}
+    <div class="img-upload" id="imgUploadBox">
+      <input type="file" name="photo" id="photoInput" accept="image/*" capture="environment"
+             onchange="previewImg(event)" />
+      <div class="upload-icon">📷</div>
+      <p>Tap to capture / replace photo</p>
+      <p class="hint">Max 10 MB · JPG/PNG</p>
+      <img class="img-preview" id="imgPreview" />
+    </div>
+    <div class="field-error" id="photo_err">Outlet photo is required</div>
+  </div>
+</div>
+<!-- /STEP 1 -->
+
+
+<!-- ══════════ STEP 2 ══════════ -->
+{% elif step == 2 %}
+<div class="card survey-card-wrapper">
+  <div class="card-title">🏪 Outlet Classification</div>
+  <div class="field">
+    <label class="field-label">Select Outlet Type <span class="req">*</span></label>
+    <div class="chip-grid" id="outletTypeGrid">
+      {% set outlet_types = [
+        'Super Market','Stand Alone Hyper Mart',
+        'Grocery – With Cooling Asset','Grocery – Without Cooling Asset',
+        'Bakery – With Cooling Asset','Sweet Shops',
+        'Chemists & Medical Shop','Fancy Shop – With Cooling Asset',
+        'Pan Shop','Condiments','Cool Drink Shops','Ice Cream Shop',
+        'Juice Shops','Pooja Stores','Oil Store','Rice Traders',
+        'Milk Specialty Outlets','Fruits & Veg – With Cooling Asset',
+        'Petrol Pump Outlets','Curry Points','Hotels & Restaurants',
+        'Tea Stalls','Canteens','Ghee Wholesale','Beverage Wholesale'
+      ] %}
+      {% for t in outlet_types %}
+      <div class="chip-opt">
+        <input type="radio" name="outlet_type" id="ot_{{ loop.index }}" value="{{ t }}"
+               {% if survey.outlet_type == t %}checked{% endif %} />
+        <label for="ot_{{ loop.index }}">{{ t }}</label>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="field-error" id="outlet_type_err">Please select an outlet type</div>
+  </div>
+</div>
+
+
+<!-- ══════════ STEP 3 ══════════ -->
+{% elif step == 3 %}
+{% set products = [
+  ('milk_10',    'Milk (₹10 Pack)',   'LPD'),
+  ('milk_other', 'Milk (Other Pack)', 'LPD'),
+  ('curd_10',    'Curd (₹10 Pack)',   'Kg/Day'),
+  ('curd_other', 'Curd (Other Pack)', 'Kg/Day'),
+  ('paneer',     'Paneer',            'Kg/Week'),
+  ('ghee',       'Ghee',              'Kg/Month'),
+  ('buttermilk', 'Buttermilk',        'Units/Day'),
+  ('icecream',   'Ice Cream',         '₹ Value/Month'),
+] %}
+<div class="card survey-card-wrapper">
+  <div class="card-title">📊 Category Industry Size</div>
+  <div class="info-box">ℹ️ Enter total market size at this outlet — <strong>all brands combined</strong></div>
+  <div class="table-responsive">
+  <table class="prod-table">
+    <thead><tr><th>Product</th><th>Market Qty</th></tr></thead>
+    <tbody>
+      {% for key, label, unit in products %}
+      <tr>
+        <td>{{ label }}<span class="unit-badge">{{ unit }}</span></td>
+        <td>
+          <input type="text" inputmode="decimal"
+                 name="ind_{{ key }}" id="ind_{{ key }}"
+                 pattern="[0-9]*([\.][0-9]+)?"
+                 value="{{ survey.industry_data.get(key,'') }}"
+                 placeholder="0"
+                 data-validate="non_negative"
+                 oninput="checkRatio('{{ key }}')" />
+          <div class="field-error" id="ind_{{ key }}_err">Must be a valid number ≥ 0</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <div class="section-divider"></div>
+  <div class="field">
+    <label class="field-label">Ice Cream Availability <span class="req">*</span></label>
+    <div class="yn-group" id="icecreamAvailGroup">
+      <div class="yn-opt">
+        <input type="radio" name="icecream_available" id="ic_y" value="yes"
+               {% if survey.icecream_available == 'yes' %}checked{% endif %}
+               onchange="showPanel('icPanel',false)" />
+        <label for="ic_y">Available ✅</label>
+      </div>
+      <div class="yn-opt">
+        <input type="radio" name="icecream_available" id="ic_n" value="no"
+               {% if survey.icecream_available == 'no' %}checked{% endif %}
+               onchange="showPanel('icPanel',true)" />
+        <label for="ic_n">Not Available</label>
+      </div>
+    </div>
+    <div class="field-error" id="icecream_available_err">Please indicate ice cream availability</div>
+    <div class="cond-panel {% if survey.icecream_available == 'no' %}show{% endif %}" id="icPanel">
+      <label class="field-label" style="margin-bottom:8px">Interested in selling ice cream?</label>
+      <div class="yn-group">
+        <div class="yn-opt"><input type="radio" name="icecream_interest" value="yes" {% if survey.icecream_interest=='yes' %}checked{% endif %}/><label>Yes 👍</label></div>
+        <div class="yn-opt"><input type="radio" name="icecream_interest" value="no"  {% if survey.icecream_interest=='no'  %}checked{% endif %}/><label>No</label></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Ice Cream Brands Sold <span class="hint">(if available)</span></label>
+    <input type="text" name="icecream_brands"
+           placeholder="e.g. Amul, Kwality Walls, Mother Dairy"
+           value="{{ survey.icecream_brands or '' }}" />
+  </div>
+</div>
+
+<div class="card survey-card-wrapper">
+  <div class="card-title">🟢 Heritage Presence</div>
+  <div class="info-box">ℹ️ Enter Heritage brand sales only at this outlet</div>
+  <div class="table-responsive">
+  <table class="prod-table">
+    <thead><tr><th>Product</th><th>Heritage Qty</th></tr></thead>
+    <tbody>
+      {% for key, label, unit in products %}
+      <tr>
+        <td>{{ label }}<span class="unit-badge">{{ unit }}</span></td>
+        <td>
+          <input type="number" name="her_{{ key }}" id="her_{{ key }}"
+                 min="0" step="0.1"
+                 value="{{ survey.heritage_data.get(key,'') }}"
+                 placeholder="0"
+                 data-validate="non_negative"
+                 oninput="checkRatio('{{ key }}')" />
+          <div class="field-error" id="her_{{ key }}_err">Must be a valid number ≥ 0</div>
+          <div class="ratio-warn" id="ratio_warn_{{ key }}">⚠ Heritage qty exceeds industry size</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+
+<!-- ══════════ STEP 4 ══════════ -->
+{% elif step == 4 %}
+{% set brand_cats = [
+  ('milk',   '🥛 Milk',   ['Vijaya','Amul','Jersey','Aarokya','Dodla','Tirumala','Sangam','Mother Dairy','Nandini']),
+  ('curd',   '🍶 Curd',   ['Vijaya','Amul','Jersey','Aarokya','Dodla','Tirumala','Sangam','Mother Dairy','Nandini','Milky Mist']),
+  ('paneer', '🧀 Paneer', ['Vijaya','Amul','Jersey','Aarokya','Dodla','Tirumala','Sangam','Milky Mist','ID','Others']),
+] %}
+<div class="card survey-card-wrapper">
+  <div class="card-title">🏆 Competition Mapping</div>
+  <div class="info-box">ℹ️ Select brands this outlet sells. First 3 selected = <strong>Rank 1, 2, 3</strong> automatically</div>
+
+  {% for cat, title, brands in brand_cats %}
+  <div style="margin-bottom:22px">
+    <div style="font-size:13px;font-weight:800;color:var(--green-700);margin-bottom:10px">
+      {{ title }}
+      <span style="font-size:10px;background:var(--green-700);color:#fff;padding:2px 8px;border-radius:10px;margin-left:6px">TG-1</span>
+    </div>
+    <div class="brand-list" id="{{ cat }}BrandList">
+      {% for brand in brands %}
+      <div class="brand-chip">
+        <input type="checkbox" name="{{ cat }}_brands" id="{{ cat }}_{{ loop.index }}" value="{{ brand }}"
+               {% if brand in (survey.competition_data.get(cat+'_brands') or []) %}checked{% endif %}
+               onchange="updateRanks('{{ cat }}')" />
+        <label for="{{ cat }}_{{ loop.index }}">
+          <span class="rank-num" id="rn_{{ cat }}_{{ loop.index }}">?</span>{{ brand }}
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    <div id="{{ cat }}RankInputs"></div>
+    <div class="field-error" id="{{ cat }}_brands_err">Please select at least one brand for {{ title }}</div>
+    <p style="font-size:11px;color:var(--text-sub);margin-top:8px;font-weight:600">
+      ⭐ First 3 ticked = Rank 1, 2, 3
+    </p>
+  </div>
+  {% if not loop.last %}<div class="section-divider"></div>{% endif %}
+  {% endfor %}
+</div>
+
+
+<!-- ══════════ STEP 5 ══════════ -->
+{% elif step == 5 %}
+{% set sup = survey.supply_data %}
+<div class="card survey-card-wrapper">
+  <div class="card-title">🚚 Supply & Distribution Mapping</div>
+
+  <div class="field">
+    <label class="field-label">Directly Supplied by Heritage? <span class="req">*</span></label>
+    <div class="yn-group" id="directSupplyGroup">
+      <div class="yn-opt">
+        <input type="radio" name="direct_supply" id="ds_y" value="yes"
+               {% if sup.get('direct_supply')=='yes' %}checked{% endif %}
+               onchange="showPanel('custPanel',true)" />
+        <label for="ds_y">Yes</label>
+      </div>
+      <div class="yn-opt">
+        <input type="radio" name="direct_supply" id="ds_n" value="no"
+               {% if sup.get('direct_supply')=='no' %}checked{% endif %}
+               onchange="showPanel('custPanel',false)" />
+        <label for="ds_n">No</label>
+      </div>
+    </div>
+    <div class="field-error" id="direct_supply_err">Please indicate direct supply status</div>
+    <div class="cond-panel {% if sup.get('direct_supply')=='yes' %}show{% endif %}" id="custPanel">
+      <label class="field-label">Customer Code / ID <span class="req">*</span></label>
+      <input type="text" name="customer_id" id="customer_id"
+             value="{{ sup.get('customer_id','') }}"
+             placeholder="Enter Heritage customer ID"
+             style="margin-top:6px"
+             data-validate="customer_id_conditional" />
+      <div class="field-error" id="customer_id_err">Customer ID is required when directly supplied</div>
+    </div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  {% for chan_key, chan_title, chan_reason_key in [
+    ('fresh_channels', 'Fresh Products Supply', 'fresh_reason'),
+    ('other_channels', 'Other Products Supply', 'other_reason'),
+  ] %}
+  <div class="field">
+    <label class="field-label">
+      Who supplies <strong>{{ 'fresh products (Milk/Curd/Paneer/Buttermilk)' if chan_key=='fresh_channels' else 'other products (Ghee/Ice Cream etc.)' }}</strong>?
+      <span class="req">*</span>
+    </label>
+    <div class="channel-chips" id="{{ chan_key }}Group">
+      {% set channels = ['HHP','FD','Agent','Parlour'] + (['PD'] if chan_key=='other_channels' else []) + ['No Supply'] %}
+      {% for ch in channels %}
+      <div class="ch-chip">
+        <input type="checkbox" name="{{ chan_key }}" id="{{ chan_key }}_{{ ch|replace(' ', '_') }}" value="{{ ch }}"
+               {% if ch in (sup.get(chan_key) or []) %}checked{% endif %}
+               {% if ch == 'No Supply' %}onchange="handleNoSupply('{{ chan_key }}', '{{ chan_reason_key }}', this)"
+               {% else %}onchange="handleChannelChange('{{ chan_key }}')"{% endif %} />
+        <label for="{{ chan_key }}_{{ ch|replace(' ', '_') }}">{{ ch }}</label>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="field-error" id="{{ chan_key }}_err">Please select at least one supply channel</div>
+
+    <div class="cond-panel {% if 'No Supply' in (sup.get(chan_key) or []) %}show{% endif %}" id="panel_{{ chan_reason_key }}">
+      <label class="field-label" style="font-size:11px;color:var(--text-sub)">Reason if not supplied: <span class="req">*</span></label>
+      <div class="reason-opts" id="{{ chan_reason_key }}Group">
+        {% for reason in ['Low demand','Margin issue','Quality perception','Competitor push'] %}
+        <div class="r-opt">
+          <input type="radio" name="{{ chan_reason_key }}" id="{{ chan_reason_key }}_{{ loop.index }}" value="{{ reason }}"
+                 {% if sup.get(chan_reason_key) == reason %}checked{% endif %} />
+          <label for="{{ chan_reason_key }}_{{ loop.index }}">{{ reason }}</label>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="field-error" id="{{ chan_reason_key }}_err">Please select a reason for no supply</div>
+    </div>
+  </div>
+  {% if not loop.last %}<div class="section-divider"></div>{% endif %}
+  {% endfor %}
+
+  <div class="section-divider"></div>
+  <div class="field">
+    <label class="field-label">Ice Cream Distributor Code</label>
+    <input type="text" name="ic_distributor" id="ic_distributor"
+           value="{{ sup.get('ic_distributor','') }}"
+           placeholder="Hyderabad IC distributor code" />
+    <p style="font-size:11px;color:var(--text-sub);margin-top:4px;font-weight:600"></p>
+  </div>
+</div>
+
+
+<!-- ══════════ STEP 6 ══════════ -->
+{% elif step == 6 %}
+{% set cool = survey.cooling_data %}
+<div class="card survey-card-wrapper">
+  <div class="card-title">❄️ Cooling Infrastructure</div>
+
+  <div class="field">
+    <label class="field-label">Cooling Assets at Outlet <span class="hint">(select all that apply)</span></label>
+    <div class="cooler-grid" id="coolingAssetsGrid">
+      {% for asset_id, icon, label in [('visi','🥶','Visi Cooler'),('bottle','🫙','Bottle Cooler'),('freezer','🍦','IC Freezer')] %}
+      <div class="cooler-card">
+        <input type="checkbox" name="cooling_assets" id="ca_{{ asset_id }}" value="{{ label }}"
+               {% if label in (cool.get('assets') or []) %}checked{% endif %}
+               onchange="handleCoolingAsset()" />
+        <label for="ca_{{ asset_id }}">
+          <span class="icon">{{ icon }}</span><span>{{ label }}</span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    <!-- No assets = reveal reason / interest panel automatically -->
+  </div>
+
+  <div class="field" id="ownershipField"
+       style="{{ 'display:none' if not (cool.get('assets') or []) else '' }}">
+    <label class="field-label">Cooler Ownership <span class="req">*</span></label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap" id="coolerOwnershipGroup">
+      {% for val, label in [('heritage','Our Company (Heritage)'),('competitor','Competitor'),('self','Self-Owned')] %}
+      <div class="yn-opt">
+        <input type="radio" name="cooler_ownership" id="co_{{ val }}" value="{{ val }}"
+               {% if cool.get('ownership') == val %}checked{% endif %} />
+        <label for="co_{{ val }}">{{ label }}</label>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="field-error" id="cooler_ownership_err">Please indicate cooler ownership</div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <div class="field">
+    <label class="field-label">Space Available for Cooler? <span class="req">*</span></label>
+    <div class="yn-group" id="spaceAvailableGroup">
+      <div class="yn-opt">
+        <input type="radio" name="space_available" id="sa_y" value="yes"
+               {% if cool.get('space_available')=='yes' %}checked{% endif %}
+               onchange="showPanel('interestWrap', true)" />
+        <label for="sa_y">Yes</label>
+      </div>
+      <div class="yn-opt">
+        <input type="radio" name="space_available" id="sa_n" value="no"
+               {% if cool.get('space_available')=='no' %}checked{% endif %}
+               onchange="showPanel('interestWrap', false)" />
+        <label for="sa_n">No</label>
+      </div>
+    </div>
+    <div class="field-error" id="space_available_err">Please indicate space availability</div>
+  </div>
+
+  <div id="interestWrap" class="cond-panel {% if cool.get('space_available')=='yes' %}show{% endif %}"
+       style="background:transparent; border:none; padding:0; margin-top:16px;">
+    <div class="field">
+      <label class="field-label">Interested in placing a cooler? <span class="hint">(if none currently)</span></label>
+      <div class="yn-group">
+        <div class="yn-opt">
+          <input type="radio" name="cooler_interest" id="ci_y" value="yes"
+                 {% if cool.get('interested')=='yes' %}checked{% endif %}
+                 onchange="showPanel('prefPanel', true)" />
+          <label for="ci_y">Yes 👍</label>
+        </div>
+        <div class="yn-opt">
+          <input type="radio" name="cooler_interest" id="ci_n" value="no"
+                 {% if cool.get('interested')=='no' %}checked{% endif %}
+                 onchange="showPanel('prefPanel', false)" />
+          <label for="ci_n">No</label>
+        </div>
+      </div>
+
+      <div class="cond-panel {% if cool.get('interested')=='yes' %}show{% endif %}" id="prefPanel">
+        <div class="field">
+          <label class="field-label">Preferred Cooler Type <span class="req">*</span></label>
+          <div class="reason-opts" style="margin-top:8px" id="coolerTypeGroup">
+            {% for t in ['Visi Cooler','Bottle Cooler','Ice Cream Freezer'] %}
+            <div class="r-opt">
+              <input type="radio" name="cooler_type" id="ct_{{ loop.index }}" value="{{ t }}"
+                     {% if cool.get('preferred_type')==t %}checked{% endif %} />
+              <label for="ct_{{ loop.index }}">{{ t }}</label>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="field-error" id="cooler_type_err">Please select a preferred cooler type</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ STEP 7 ══════════ -->
+{% elif step == 7 %}
+<div class="card survey-card-wrapper">
+  <div class="card-title">✅ Review & Submit</div>
+  <div class="info-box">ℹ️ Please verify all details before submitting. Once submitted, contact admin to edit.</div>
+
+  <div class="summary-grid">
+    {% set summary = [
+      ('Outlet', survey.outlet_name or '—'),
+      ('Owner',  survey.owner_name or '—'),
+      ('Mobile', survey.mobile or '—'),
+      ('Area',   survey.area or '—'),
+      ('Type',   survey.outlet_type or '—'),
+      ('GPS',    (survey.latitude|string + ', ' + survey.longitude|string) if survey.latitude else '—'),
+    ] %}
+    {% for lbl, val in summary %}
+    <div style="background:var(--surface2);padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+      <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--text-sub)">{{ lbl }}</div>
+      <div style="font-size:13px;font-weight:700;margin-top:3px">
+        {% if val == '—' %}<span style="color:#DC2626">{{ val }} ⚠</span>{% else %}{{ val }}{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Completeness check banner -->
+  {% set missing = [] %}
+  {% if not survey.outlet_name %}{% set _ = missing.append('Outlet Name') %}{% endif %}
+  {% if not survey.outlet_type %}{% set _ = missing.append('Outlet Type') %}{% endif %}
+  {% if not survey.latitude %}{% set _ = missing.append('GPS Location') %}{% endif %}
+  {% if not survey.photo_filename %}{% set _ = missing.append('Outlet Photo') %}{% endif %}
+  {% if missing %}
+  <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px">
+    <div style="font-size:12px;font-weight:800;color:#DC2626;margin-bottom:6px">⚠ Missing required data:</div>
+    {% for m in missing %}
+    <div style="font-size:11px;color:#DC2626;font-weight:700">• {{ m }} — go back to fix</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="field">
+    <label class="field-label">Sales Executive Sign-off</label>
+    <div style="background:var(--surface2);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700">{{ user.full_name }}</div>
+      <div style="font-size:11px;color:var(--text-sub);margin-top:2px">{{ user.employee_id }} · {{ user.region or 'Field Sales' }}</div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Additional Remarks / Observations</label>
+    <textarea name="se_remarks" id="se_remarks"
+              placeholder="Any notes, observations, or special instructions..."
+              data-validate="maxlen:500">{{ survey.se_remarks or '' }}</textarea>
+    <div style="font-size:10px;color:var(--text-sub);text-align:right;margin-top:3px">
+      <span id="remarksCount">{{ (survey.se_remarks or '')|length }}</span>/500
+    </div>
+    <div class="field-error" id="se_remarks_err">Remarks must be under 500 characters</div>
+  </div>
+
+  <div style="background:var(--gold-light);border:1px solid #FDE68A;border-radius:var(--radius-sm);padding:12px 14px;font-size:12px;color:#92400E;font-weight:700">
+    ⚠️ Submitting will lock this survey. Ensure all details are accurate.
+  </div>
+</div>
+{% endif %}
+
+</form>
+</div>
+
+<!-- Bottom Nav -->
+<div class="survey-nav">
+  <div class="survey-nav-inner">
+    {% if step > 1 %}
+    <a href="/survey/{{ survey.id }}/step/{{ step-1 }}" class="btn btn-ghost btn-nav-back btn-nav-next" style="flex:0 0 52px">←</a>
+    {% endif %}
+    <button type="button" id="navNextBtn"
+            class="btn btn-primary btn-nav-next {% if step == total_steps %}btn-submit{% endif %}"
+            onclick="handleNext()">
+      {% if step == total_steps %}🚀 Submit Survey{% else %}Next Step →{% endif %}
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ═══════════════════════════════════════════════
+   UTILITY
+═══════════════════════════════════════════════ */
+const STEP = {{ step }};
+const TOTAL = {{ total_steps }};
+
+function showPanel(id, show) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('show', show);
+}
+
+let toastTimer = null;
+function showToast(msg, type = 'error', duration = 3200) {
+  const t = document.getElementById('validationToast');
+  t.textContent = msg;
+  t.className = 'show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), duration);
+}
+
+function markError(fieldId, errId, show) {
+  const f = document.getElementById(fieldId);
+  const e = document.getElementById(errId);
+  if (f) f.classList.toggle('invalid', show);
+  if (f) f.classList.toggle('valid', !show && f.value);
+  if (e) e.classList.toggle('visible', show);
+}
+
+function markGroupError(errId, show) {
+  const e = document.getElementById(errId);
+  if (e) e.classList.toggle('visible', show);
+}
+
+function scrollToFirstError() {
+  const first = document.querySelector('.invalid, .field-error.visible');
+  if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/* ═══════════════════════════════════════════════
+   KEYBOARD / MOBILE FIX
+═══════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  const inputs = document.querySelectorAll('input, textarea, select');
+  const bottomNav = document.querySelector('.survey-nav');
+  inputs.forEach(inp => {
+    inp.addEventListener('focus', () => {
+      if (window.innerWidth <= 768) bottomNav.style.position = 'static';
+    });
+    inp.addEventListener('blur', () => {
+      bottomNav.style.position = 'fixed';
+    });
+  });
+
+  // Remarks counter (Step 7)
+  const remarks = document.getElementById('se_remarks');
+  const counter = document.getElementById('remarksCount');
+  if (remarks && counter) {
+    remarks.addEventListener('input', () => {
+      counter.textContent = remarks.value.length;
+      if (remarks.value.length > 500) {
+        remarks.classList.add('invalid');
+        markGroupError('se_remarks_err', true);
+      } else {
+        remarks.classList.remove('invalid');
+        markGroupError('se_remarks_err', false);
+      }
+    });
+  }
+});
+
+
+/* ═══════════════════════════════════════════════
+   WHATSAPP TOGGLE
+═══════════════════════════════════════════════ */
+function toggleWa(cb) {
+  const wrap = document.getElementById('altWaWrap');
+  wrap.style.display = cb.checked ? 'none' : '';
+  if (cb.checked) {
+    const wa = document.getElementById('whatsapp_number');
+    if (wa) { wa.classList.remove('invalid'); markGroupError('whatsapp_number_err', false); }
+  }
+}
+
+
+/* ═══════════════════════════════════════════════
+   GPS CAPTURE
+═══════════════════════════════════════════════ */
+function captureGeo() {
+  const btn = document.getElementById('geoBtn');
+  if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+    document.getElementById('geoVal').textContent = 'Error: HTTPS required for GPS';
+    showToast('HTTPS is required to capture GPS', 'error');
+    btn.textContent = 'Failed'; return;
+  }
+  btn.textContent = '⏳'; btn.disabled = true;
+  if (!navigator.geolocation) {
+    document.getElementById('geoVal').textContent = 'Not supported on this device';
+    btn.textContent = 'N/A'; btn.disabled = false; return;
+  }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const lat = pos.coords.latitude.toFixed(6);
+    const lon = pos.coords.longitude.toFixed(6);
+    document.getElementById('latInput').value = lat;
+    document.getElementById('lngInput').value = lon;
+    document.getElementById('geoLabel').textContent = '✅ Location Captured';
+    document.getElementById('geoVal').textContent = lat + ', ' + lon;
+    document.getElementById('geoStatus').classList.add('captured');
+    markGroupError('gps_err', false);
+    btn.textContent = '✓ Done';
+    btn.style.background = 'var(--green-500)';
+    btn.disabled = false;
+    showToast('GPS captured successfully', 'success', 2000);
+  }, err => {
+    const msgs = {
+      1: 'Location permission denied. Please allow in browser settings.',
+      2: 'Location unavailable. Try again outdoors.',
+      3: 'GPS timed out. Try again.'
+    };
+    document.getElementById('geoVal').textContent = msgs[err.code] || 'GPS error';
+    showToast(msgs[err.code] || 'GPS capture failed', 'error');
+    btn.textContent = 'Retry'; btn.disabled = false;
+  }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+}
+
+
+/* ═══════════════════════════════════════════════
+   IMAGE PREVIEW + SIZE CHECK
+═══════════════════════════════════════════════ */
+function previewImg(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const MAX_MB = 10;
+  if (file.size > MAX_MB * 1024 * 1024) {
+    showToast(`Photo too large — max ${MAX_MB} MB`, 'error');
+    e.target.value = '';
+    return;
+  }
+  const allowed = ['image/jpeg','image/png','image/webp','image/heic','image/heif'];
+  if (!allowed.includes(file.type) && !file.name.match(/\.(jpg|jpeg|png|webp|heic|heif)$/i)) {
+    showToast('Only JPG / PNG photos are accepted', 'error');
+    e.target.value = '';
+    return;
+  }
+  const p = document.getElementById('imgPreview');
+  p.src = URL.createObjectURL(file);
+  p.style.display = 'block';
+  markGroupError('photo_err', false);
+  document.getElementById('imgUploadBox').style.borderColor = 'var(--green-500)';
+}
+
+
+/* ═══════════════════════════════════════════════
+   BRAND RANK SYSTEM
+═══════════════════════════════════════════════ */
+function updateRanks(cat) {
+  const list = document.getElementById(cat + 'BrandList');
+  if (!list) return;
+  const checked = [...list.querySelectorAll('input:checked')];
+  list.querySelectorAll('input').forEach((cb, i) => {
+    const rn = document.getElementById('rn_' + cat + '_' + (i + 1));
+    if (!rn) return;
+    const idx = checked.indexOf(cb);
+    rn.textContent = (idx >= 0 && idx < 3) ? idx + 1 : '?';
+  });
+  const wrap = document.getElementById(cat + 'RankInputs');
+  if (wrap) {
+    wrap.innerHTML = '';
+    checked.slice(0, 3).forEach((cb, i) => {
+      const inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = cat + '_rank'; inp.value = cb.value;
+      wrap.appendChild(inp);
+    });
+  }
+  // Clear error when at least one selected
+  if (checked.length > 0) markGroupError(cat + '_brands_err', false);
+}
+
+['milk','curd','paneer'].forEach(cat => {
+  const list = document.getElementById(cat + 'BrandList');
+  if (list) updateRanks(cat);
+});
+
+
+/* ═══════════════════════════════════════════════
+   STEP 3 — Heritage vs Industry ratio check
+═══════════════════════════════════════════════ */
+function checkRatio(key) {
+  const ind = parseFloat(document.getElementById('ind_' + key)?.value) || 0;
+  const her = parseFloat(document.getElementById('her_' + key)?.value) || 0;
+  const warn = document.getElementById('ratio_warn_' + key);
+  if (warn) warn.classList.toggle('visible', her > 0 && ind > 0 && her > ind);
+}
+
+
+/* ═══════════════════════════════════════════════
+   STEP 5 — No Supply logic
+═══════════════════════════════════════════════ */
+function handleNoSupply(chanKey, reasonKey, cb) {
+  // If "No Supply" checked, uncheck all others; show reason panel
+  const group = document.getElementById(chanKey + 'Group');
+  if (!group || !cb.checked) {
+    showPanel('panel_' + reasonKey, false);
+    return;
+  }
+  group.querySelectorAll('input[type=checkbox]').forEach(other => {
+    if (other.value !== 'No Supply') other.checked = false;
+  });
+  showPanel('panel_' + reasonKey, true);
+  markGroupError(chanKey + '_err', false);
+}
+
+function handleChannelChange(chanKey) {
+  // If any real channel selected, uncheck "No Supply"
+  const group = document.getElementById(chanKey + 'Group');
+  if (!group) return;
+  const anyReal = [...group.querySelectorAll('input[type=checkbox]')]
+    .some(cb => cb.value !== 'No Supply' && cb.checked);
+  if (anyReal) {
+    const noSup = group.querySelector('input[value="No Supply"]');
+    if (noSup) noSup.checked = false;
+    // Determine reason key and hide
+    const reasonKey = chanKey === 'fresh_channels' ? 'fresh_reason' : 'other_reason';
+    showPanel('panel_' + reasonKey, false);
+  }
+  markGroupError(chanKey + '_err', false);
+}
+
+
+/* ═══════════════════════════════════════════════
+   STEP 6 — Cooling asset toggle
+═══════════════════════════════════════════════ */
+function handleCoolingAsset() {
+  const anyChecked = document.querySelectorAll('input[name=cooling_assets]:checked').length > 0;
+  const ownershipField = document.getElementById('ownershipField');
+  if (ownershipField) ownershipField.style.display = anyChecked ? '' : 'none';
+}
+
+
+/* ═══════════════════════════════════════════════
+   VALIDATORS
+═══════════════════════════════════════════════ */
+const phoneRegex = /^(\+91[\-\s]?)?0?(91)?[6-9]\d{9}$/;
+
+function validatePhone(val) {
+  if (!val) return false;
+  const clean = val.replace(/[\s\-\(\)]/g, '');
+  return phoneRegex.test(clean);
+}
+
+function validateStep1() {
+  let ok = true;
+  const errs = [];
+
+  // Outlet name
+  const outletName = document.getElementById('outlet_name');
+  if (!outletName.value.trim() || outletName.value.trim().length < 3) {
+    markError('outlet_name', 'outlet_name_err', true);
+    ok = false; errs.push('Outlet Name');
+  } else { markError('outlet_name', 'outlet_name_err', false); }
+
+  // Owner name
+  const ownerName = document.getElementById('owner_name');
+  if (!ownerName.value.trim() || ownerName.value.trim().length < 3) {
+    markError('owner_name', 'owner_name_err', true);
+    ok = false; errs.push('Owner Name');
+  } else { markError('owner_name', 'owner_name_err', false); }
+
+  // Mobile
+  const mobile = document.getElementById('mobile');
+  if (!validatePhone(mobile.value)) {
+    markError('mobile', 'mobile_err', true);
+    ok = false; errs.push('Mobile Number');
+  } else { markError('mobile', 'mobile_err', false); }
+
+  // WhatsApp (only if toggled off)
+  const waWrap = document.getElementById('altWaWrap');
+  if (waWrap && waWrap.style.display !== 'none') {
+    const waNum = document.getElementById('whatsapp_number');
+    if (waNum && waNum.value && !validatePhone(waNum.value)) {
+      markError('whatsapp_number', 'whatsapp_number_err', true);
+      ok = false; errs.push('WhatsApp Number');
+    } else { markError('whatsapp_number', 'whatsapp_number_err', false); }
+  }
+
+  // FSSAI (optional but if provided must be 14 digits)
+  const fssai = document.getElementById('fssai_number');
+  if (fssai && fssai.value.trim()) {
+    if (!/^\d{14}$/.test(fssai.value.trim())) {
+      markError('fssai_number', 'fssai_number_err', true);
+      ok = false; errs.push('FSSAI Number');
+    } else { markError('fssai_number', 'fssai_number_err', false); }
+  }
+
+  // Area
+  const area = document.getElementById('area');
+  if (!area.value.trim() || area.value.trim().length < 3) {
+    markError('area', 'area_err', true);
+    ok = false; errs.push('Area / Locality');
+  } else { markError('area', 'area_err', false); }
+
+  // GPS
+  const lat = document.getElementById('latInput');
+  const lng = document.getElementById('lngInput');
+  const gpsOk = lat && lat.value && lng && lng.value;
+  markGroupError('gps_err', !gpsOk);
+  if (!gpsOk) { ok = false; errs.push('GPS Location'); }
+
+  // Photo
+  const photoInput = document.getElementById('photoInput');
+  const existingPhoto = document.getElementById('existingPhoto');
+  const hasPhoto = (photoInput && photoInput.files.length > 0) || !!existingPhoto;
+  markGroupError('photo_err', !hasPhoto);
+  if (!hasPhoto) { ok = false; errs.push('Outlet Photo'); }
+
+  return { ok, errs };
+}
+
+function validateStep2() {
+  let ok = true; const errs = [];
+  const selected = document.querySelector('input[name=outlet_type]:checked');
+  markGroupError('outlet_type_err', !selected);
+  if (!selected) { ok = false; errs.push('Outlet Type'); }
+  return { ok, errs };
+}
+
+function validateStep3() {
+  let ok = true; const errs = [];
+  const keys = ['milk_10','milk_other','curd_10','curd_other','paneer','ghee','buttermilk','icecream'];
+
+  keys.forEach(k => {
+    const ind = document.getElementById('ind_' + k);
+    const her = document.getElementById('her_' + k);
+    if (ind && ind.value !== '' && (isNaN(parseFloat(ind.value)) || parseFloat(ind.value) < 0)) {
+      markError('ind_' + k, 'ind_' + k + '_err', true);
+      ok = false;
+    } else if (ind) { markError('ind_' + k, 'ind_' + k + '_err', false); }
+
+    if (her && her.value !== '' && (isNaN(parseFloat(her.value)) || parseFloat(her.value) < 0)) {
+      markError('her_' + k, 'her_' + k + '_err', true);
+      ok = false;
+    } else if (her) { markError('her_' + k, 'her_' + k + '_err', false); }
+  });
+
+  // Ice cream availability required
+  const icAvail = document.querySelector('input[name=icecream_available]:checked');
+  markGroupError('icecream_available_err', !icAvail);
+  if (!icAvail) { ok = false; errs.push('Ice Cream Availability'); }
+
+  if (!ok && !errs.length) errs.push('Invalid numeric values');
+  return { ok, errs };
+}
+
+function validateStep4() {
+  let ok = true; const errs = [];
+  ['milk','curd','paneer'].forEach(cat => {
+    const list = document.getElementById(cat + 'BrandList');
+    if (!list) return;
+    const checked = list.querySelectorAll('input:checked').length;
+    markGroupError(cat + '_brands_err', checked === 0);
+    if (checked === 0) { ok = false; errs.push(cat.charAt(0).toUpperCase() + cat.slice(1) + ' brands'); }
+  });
+  return { ok, errs };
+}
+
+function validateStep5() {
+  let ok = true; const errs = [];
+
+  // Direct supply required
+  const ds = document.querySelector('input[name=direct_supply]:checked');
+  markGroupError('direct_supply_err', !ds);
+  if (!ds) { ok = false; errs.push('Direct Supply'); }
+
+  // Customer ID if yes
+  if (ds && ds.value === 'yes') {
+    const cid = document.getElementById('customer_id');
+    if (!cid || !cid.value.trim()) {
+      markError('customer_id', 'customer_id_err', true);
+      ok = false; errs.push('Customer ID');
+    } else { markError('customer_id', 'customer_id_err', false); }
+  }
+
+  // Fresh channels
+  const freshChecked = document.querySelectorAll('input[name=fresh_channels]:checked').length;
+  markGroupError('fresh_channels_err', freshChecked === 0);
+  if (freshChecked === 0) { ok = false; errs.push('Fresh Supply Channel'); }
+
+  // Fresh reason (if No Supply checked)
+  const freshNoSup = document.querySelector('input[name=fresh_channels][value="No Supply"]:checked');
+  if (freshNoSup) {
+    const reason = document.querySelector('input[name=fresh_reason]:checked');
+    markGroupError('fresh_reason_err', !reason);
+    if (!reason) { ok = false; errs.push('Fresh Supply Reason'); }
+  }
+
+  // Other channels
+  const otherChecked = document.querySelectorAll('input[name=other_channels]:checked').length;
+  markGroupError('other_channels_err', otherChecked === 0);
+  if (otherChecked === 0) { ok = false; errs.push('Other Supply Channel'); }
+
+  // Other reason (if No Supply checked)
+  const otherNoSup = document.querySelector('input[name=other_channels][value="No Supply"]:checked');
+  if (otherNoSup) {
+    const reason = document.querySelector('input[name=other_reason]:checked');
+    markGroupError('other_reason_err', !reason);
+    if (!reason) { ok = false; errs.push('Other Supply Reason'); }
+  }
+
+  return { ok, errs };
+}
+
+function validateStep6() {
+  let ok = true; const errs = [];
+
+  // Space available required
+  const sa = document.querySelector('input[name=space_available]:checked');
+  markGroupError('space_available_err', !sa);
+  if (!sa) { ok = false; errs.push('Space Available for Cooler'); }
+
+  // Ownership required if cooler assets selected
+  const assetsChecked = document.querySelectorAll('input[name=cooling_assets]:checked').length;
+  if (assetsChecked > 0) {
+    const ownership = document.querySelector('input[name=cooler_ownership]:checked');
+    markGroupError('cooler_ownership_err', !ownership);
+    if (!ownership) { ok = false; errs.push('Cooler Ownership'); }
+  }
+
+  // Cooler type required if interested = yes
+  const interested = document.querySelector('input[name=cooler_interest]:checked');
+  if (interested && interested.value === 'yes') {
+    const ctype = document.querySelector('input[name=cooler_type]:checked');
+    markGroupError('cooler_type_err', !ctype);
+    if (!ctype) { ok = false; errs.push('Preferred Cooler Type'); }
+  }
+
+  return { ok, errs };
+}
+
+function validateStep7() {
+  let ok = true; const errs = [];
+  const remarks = document.getElementById('se_remarks');
+  if (remarks && remarks.value.length > 500) {
+    markGroupError('se_remarks_err', true);
+    ok = false; errs.push('Remarks too long');
+  }
+  return { ok, errs };
+}
+
+
+/* ═══════════════════════════════════════════════
+   MAIN NAVIGATION HANDLER
+═══════════════════════════════════════════════ */
+const validators = {
+  1: validateStep1,
+  2: validateStep2,
+  3: validateStep3,
+  4: validateStep4,
+  5: validateStep5,
+  6: validateStep6,
+  7: validateStep7,
+};
+
+function handleNext() {
+  const validate = validators[STEP];
+  if (!validate) { document.getElementById('surveyForm').submit(); return; }
+
+  const { ok, errs } = validate();
+  if (!ok) {
+    const msg = errs.length
+      ? `Please fix: ${errs.slice(0,3).join(', ')}${errs.length > 3 ? ` +${errs.length-3} more` : ''}`
+      : 'Please fill all required fields';
+    showToast(msg, 'error');
+    setTimeout(scrollToFirstError, 100);
+    // Shake the nav button
+    const btn = document.getElementById('navNextBtn');
+    btn.style.transform = 'translateX(-6px)';
+    setTimeout(() => btn.style.transform = 'translateX(6px)', 80);
+    setTimeout(() => btn.style.transform = '', 160);
+    return;
+  }
+
+  if (STEP === TOTAL) {
+    // Open confirm overlay instead of submitting directly
+    document.getElementById('submitOverlay').classList.add('open');
+    return;
+  }
+
+  showToast('Step saved ✓', 'success', 1500);
+  setTimeout(() => document.getElementById('surveyForm').submit(), 300);
+}
+
+function closeOverlay() {
+  document.getElementById('submitOverlay').classList.remove('open');
+}
+
+function doSubmit() {
+  const btn = document.getElementById('confirmSubmitBtn');
+  btn.textContent = 'Submitting…'; btn.disabled = true;
+  document.getElementById('surveyForm').submit();
+}
+
+// Close overlay on backdrop click
+document.getElementById('submitOverlay')?.addEventListener('click', function(e) {
+  if (e.target === this) closeOverlay();
+});
+
+
+/* ═══════════════════════════════════════════════
+   INLINE REAL-TIME VALIDATION
+   (fires on blur so it's not annoying during typing)
+═══════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  // Text/tel inputs — validate on blur
+  const realtimeFields = [
+    { id: 'outlet_name',      test: v => v.trim().length >= 3,      errId: 'outlet_name_err' },
+    { id: 'owner_name',       test: v => v.trim().length >= 3,      errId: 'owner_name_err' },
+    { id: 'mobile',           test: v => validatePhone(v),          errId: 'mobile_err' },
+    { id: 'whatsapp_number',  test: v => !v || validatePhone(v),    errId: 'whatsapp_number_err' },
+    { id: 'fssai_number',     test: v => !v || /^\d{14}$/.test(v.trim()), errId: 'fssai_number_err' },
+    { id: 'area',             test: v => v.trim().length >= 3,      errId: 'area_err' },
+    { id: 'customer_id',      test: v => v.trim().length > 0,       errId: 'customer_id_err' },
+  ];
+
+  realtimeFields.forEach(({ id, test, errId }) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('blur', () => {
+      const fail = !test(el.value);
+      // Only show inline if field has been touched (has value or was already invalid)
+      if (el.value || el.classList.contains('invalid')) {
+        markError(id, errId, fail);
+      }
+    });
+    el.addEventListener('input', () => {
+      if (el.classList.contains('invalid') && test(el.value)) {
+        markError(id, errId, false);
+      }
+    });
+  });
+});
+</script>
+{% endblock %}
