@@ -378,6 +378,58 @@
       {% endfor %}
     </div>
     <div class="field-error" id="outlet_type_err">Please select an outlet type</div>
+    <div class="section-divider"></div>
+<div class="section-divider"></div>
+<div class="field">
+  <label class="field-label">🏪 Outlet Interior Photo <span class="hint">Wide shot of shop layout</span></label>
+  {% if survey.interior_photo %}
+    <img src="/static/uploads/{{ survey.interior_photo }}" class="img-preview" style="display:block;margin-bottom:10px"/>
+  {% endif %}
+  <div class="img-upload">
+    <input type="file" id="input_interior_photo" accept="image/*" capture="environment"
+           onchange="handlePhotoSelect(event,'interior_photo')" />
+    <div class="upload-icon">📷</div><p>Tap to capture interior</p>
+    <img class="img-preview" id="preview_interior_photo" />
+  </div>
+  <div class="photo-upload-status" id="status_interior_photo">
+    {% if survey.interior_photo %}<span style="color:#16A34A;font-weight:700">✅ Photo saved</span>{% endif %}
+  </div>
+  <input type="hidden" id="uploaded_interior_photo" value="{{ '1' if survey.interior_photo else '' }}" />
+</div>
+
+<div class="field">
+  <label class="field-label">🟢 Heritage Shelf Photo <span class="hint">Heritage products on display</span></label>
+  {% if survey.shelf_photo %}
+    <img src="/static/uploads/{{ survey.shelf_photo }}" class="img-preview" style="display:block;margin-bottom:10px"/>
+  {% endif %}
+  <div class="img-upload">
+    <input type="file" id="input_shelf_photo" accept="image/*" capture="environment"
+           onchange="handlePhotoSelect(event,'shelf_photo')" />
+    <div class="upload-icon">📷</div><p>Tap to capture Heritage shelf</p>
+    <img class="img-preview" id="preview_shelf_photo" />
+  </div>
+  <div class="photo-upload-status" id="status_shelf_photo">
+    {% if survey.shelf_photo %}<span style="color:#16A34A;font-weight:700">✅ Photo saved</span>{% endif %}
+  </div>
+  <input type="hidden" id="uploaded_shelf_photo" value="{{ '1' if survey.shelf_photo else '' }}" />
+</div>
+
+<div class="field">
+  <label class="field-label">📌 POSM / Branding Photo <span class="hint">Posters, danglers visible</span></label>
+  {% if survey.posm_photo %}
+    <img src="/static/uploads/{{ survey.posm_photo }}" class="img-preview" style="display:block;margin-bottom:10px"/>
+  {% endif %}
+  <div class="img-upload">
+    <input type="file" id="input_posm_photo" accept="image/*" capture="environment"
+           onchange="handlePhotoSelect(event,'posm_photo')" />
+    <div class="upload-icon">📷</div><p>Tap to capture branding</p>
+    <img class="img-preview" id="preview_posm_photo" />
+  </div>
+  <div class="photo-upload-status" id="status_posm_photo">
+    {% if survey.posm_photo %}<span style="color:#16A34A;font-weight:700">✅ Photo saved</span>{% endif %}
+  </div>
+  <input type="hidden" id="uploaded_posm_photo" value="{{ '1' if survey.posm_photo else '' }}" />
+</div>
   </div>
 </div>
 
@@ -441,8 +493,16 @@
     <div class="cond-panel {% if survey.icecream_available == 'no' %}show{% endif %}" id="icPanel">
       <label class="field-label" style="margin-bottom:8px">Interested in selling ice cream?</label>
       <div class="yn-group">
-        <div class="yn-opt"><input type="radio" name="icecream_interest" value="yes" {% if survey.icecream_interest=='yes' %}checked{% endif %}/><label>Yes 👍</label></div>
-        <div class="yn-opt"><input type="radio" name="icecream_interest" value="no"  {% if survey.icecream_interest=='no'  %}checked{% endif %}/><label>No</label></div>
+        <div class="yn-opt">
+  <input type="radio" name="icecream_interest" id="ici_y" value="yes"
+         {% if survey.icecream_interest=='yes' %}checked{% endif %}/>
+  <label for="ici_y">Yes 👍</label>
+</div>
+<div class="yn-opt">
+  <input type="radio" name="icecream_interest" id="ici_n" value="no"
+         {% if survey.icecream_interest=='no' %}checked{% endif %}/>
+  <label for="ici_n">No</label>
+</div>
       </div>
     </div>
   </div>
@@ -644,6 +704,8 @@
       {% endfor %}
     </div>
     <div class="field-error" id="cooler_ownership_err">Please indicate cooler ownership</div>
+
+    <div id="coolerPhotosWrap"></div>
   </div>
 
   <div class="section-divider"></div>
@@ -669,6 +731,24 @@
 
   <div id="interestWrap" class="cond-panel {% if cool.get('space_available')=='yes' %}show{% endif %}"
        style="background:transparent; border:none; padding:0; margin-top:16px;">
+
+    <div class="field">
+      <label class="field-label">📸 Space Photo <span class="hint">Show available area for cooler</span></label>
+      {% if survey.space_photo %}
+        <img src="/static/uploads/{{ survey.space_photo }}" class="img-preview" style="display:block;margin-bottom:10px"/>
+      {% endif %}
+      <div class="img-upload">
+        <input type="file" id="input_space_photo" accept="image/*" capture="environment"
+               onchange="handlePhotoSelect(event,'space_photo')" />
+        <div class="upload-icon">📷</div><p>Tap to capture available space</p>
+        <img class="img-preview" id="preview_space_photo" />
+      </div>
+      <div class="photo-upload-status" id="status_space_photo">
+        {% if survey.space_photo %}<span style="color:#16A34A;font-weight:700">✅ Photo saved</span>{% endif %}
+      </div>
+      <input type="hidden" id="uploaded_space_photo" value="{{ '1' if survey.space_photo else '' }}" />
+    </div>
+
     <div class="field">
       <label class="field-label">Interested in placing a cooler? <span class="hint">(if none currently)</span></label>
       <div class="yn-group">
@@ -702,8 +782,9 @@
         </div>
       </div>
     </div>
-  </div>
-</div>
+
+  </div>  {# end interestWrap #}
+</div>  {# end card #}
 
 
 <!-- ══════════ STEP 7 ══════════ -->
@@ -799,7 +880,9 @@ const SURVEY_ID  = '{{ survey.id }}';
 
 // Photo upload state machine
 // 'idle' | 'compressing' | 'uploading' | 'done' | 'error'
-let photoState = '{{ "done" if survey.photo_filename else "idle" }}';
+const photoStates = {
+  photo: '{{ "done" if survey.photo_filename else "idle" }}'
+};
 
 /* ═══════════════════════════════════════════════
    UTILITY
@@ -970,7 +1053,7 @@ function setPhotoStatus(state, msg) {
   const bar = document.getElementById('uploadProgressBar');
   const fill = document.getElementById('uploadProgressFill');
   if (!el) return;
-  photoState = state;
+
 
   if (state === 'compressing') {
     el.className = 'photo-upload-status uploading';
@@ -1008,67 +1091,68 @@ function setPhotoStatus(state, msg) {
    4. Set photoUploaded flag when done
    5. Form POST sends no file — just the form fields
 ═══════════════════════════════════════════════ */
-async function handlePhotoSelect(e) {
+async function handlePhotoSelect(e, fieldId = 'photo') {
   const file = e.target.files[0];
   if (!file) return;
 
-  const MAX_MB = 10;
-  if (file.size > MAX_MB * 1024 * 1024) {
-    showToast(`Photo too large — max ${MAX_MB} MB`, 'error');
-    e.target.value = '';
-    return;
-  }
-  const allowed = ['image/jpeg','image/png','image/webp','image/heic','image/heif'];
-  if (!allowed.includes(file.type) && !file.name.match(/\.(jpg|jpeg|png|webp|heic|heif)$/i)) {
-    showToast('Only JPG / PNG photos are accepted', 'error');
-    e.target.value = '';
-    return;
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('Photo too large — max 10 MB', 'error'); e.target.value = ''; return;
   }
 
-  // Show local preview immediately (before upload)
-  const previewEl = document.getElementById('imgPreview');
-  const existingEl = document.getElementById('existingPhoto');
+  const isMain     = fieldId === 'photo';
+  const previewEl  = document.getElementById(isMain ? 'imgPreview'       : `preview_${fieldId}`);
+  const existingEl = document.getElementById(isMain ? 'existingPhoto'    : null);
+  const uploadedEl = document.getElementById(isMain ? 'photoUploaded'    : `uploaded_${fieldId}`);
+
   if (existingEl) existingEl.style.display = 'none';
   previewEl.src = URL.createObjectURL(file);
   previewEl.style.display = 'block';
+  uploadedEl.value = '';
 
-  // Mark as uploading so Next button waits if tapped too fast
-  document.getElementById('photoUploaded').value = '';
-  setPhotoStatus('compressing');
+  // --- reuse your existing setPhotoStatus for main photo, simple text for others ---
+  if (isMain) {
+    setPhotoStatus('compressing');
+  } else {
+    document.getElementById(`status_${fieldId}`).innerHTML = '<div class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid #ccc;border-top-color:#16A34A;border-radius:50%;animation:spin .7s linear infinite"></div> Uploading…';
+  }
+  photoStates[fieldId] = 'uploading';
 
   try {
-    // Step 1: Compress
     const compressed = await compressImage(file);
-    const sizeMB = (compressed.size / 1024 / 1024).toFixed(2);
-    console.log(`Photo compressed: ${(file.size/1024/1024).toFixed(2)} MB → ${sizeMB} MB`);
-
-    setPhotoStatus('uploading');
-
-    // Step 2: Upload in background
     const formData = new FormData();
     formData.append('photo', compressed, 'outlet.jpg');
+    formData.append('photo_type', fieldId);
 
     const resp = await fetch(`/api/survey/${SURVEY_ID}/upload-photo`, {
-      method: 'POST',
-      body: formData
+      method: 'POST', body: formData
     });
-
     if (!resp.ok) throw new Error(`Server error ${resp.status}`);
     const data = await resp.json();
     if (!data.ok) throw new Error(data.error || 'Upload failed');
 
-    // Step 3: Mark done — clear the file input so form POST sends nothing
-    document.getElementById('photoUploaded').value = '1';
-    e.target.value = '';  // ← THIS is the key: Next sends no file, no waiting
-    setPhotoStatus('done');
+    uploadedEl.value = '1';
+    e.target.value = '';
+    photoStates[fieldId] = 'done';
+
+    if (isMain) {
+      setPhotoStatus('done');
+    } else {
+      document.getElementById(`status_${fieldId}`).innerHTML = '✅ Photo saved';
+      document.getElementById(`status_${fieldId}`).style.color = '#16A34A';
+    }
 
   } catch (err) {
-    console.error('Photo upload error:', err);
-    setPhotoStatus('error', err.message);
-    // Keep photoUploaded empty so validation will catch it
-    document.getElementById('photoUploaded').value = '';
+    photoStates[fieldId] = 'error';
+    if (isMain) {
+      setPhotoStatus('error', err.message);
+    } else {
+      document.getElementById(`status_${fieldId}`).innerHTML = '❌ Upload failed — tap to retry';
+      document.getElementById(`status_${fieldId}`).style.color = '#DC2626';
+    }
+    uploadedEl.value = '';
   }
 }
+
 
 /* ═══════════════════════════════════════════════
    BRAND RANK SYSTEM
@@ -1140,11 +1224,64 @@ function handleChannelChange(chanKey) {
 /* ═══════════════════════════════════════════════
    STEP 6 — Cooling asset toggle
 ═══════════════════════════════════════════════ */
+const ASSET_PHOTO_MAP = {
+  'Visi Cooler':   { id: 'cooler_photo_visi',    icon: '🥶', label: 'Visi Cooler Photo' },
+  'Bottle Cooler': { id: 'cooler_photo_bottle',  icon: '🫙', label: 'Bottle Cooler Photo' },
+  'IC Freezer':    { id: 'cooler_photo_freezer', icon: '🍦', label: 'IC Freezer Photo' },
+};
+
+// Pre-populate saved state from server for existing photos
+const SAVED_COOLER_PHOTOS = {
+  cooler_photo_visi:    '{{ survey.cooler_photo_visi or "" }}',
+  cooler_photo_bottle:  '{{ survey.cooler_photo_bottle or "" }}',
+  cooler_photo_freezer: '{{ survey.cooler_photo_freezer or "" }}',
+};
+
 function handleCoolingAsset() {
-  const anyChecked = document.querySelectorAll('input[name=cooling_assets]:checked').length > 0;
+  const checked = [...document.querySelectorAll('input[name=cooling_assets]:checked')];
   const ownershipField = document.getElementById('ownershipField');
-  if (ownershipField) ownershipField.style.display = anyChecked ? '' : 'none';
+  const wrap = document.getElementById('coolerPhotosWrap');
+
+  if (ownershipField) ownershipField.style.display = checked.length > 0 ? '' : 'none';
+  if (!wrap) return;
+
+  // Build one photo field per checked asset
+  wrap.innerHTML = '';
+  checked.forEach(cb => {
+    const asset = ASSET_PHOTO_MAP[cb.value];
+    if (!asset) return;
+
+    const savedFile = SAVED_COOLER_PHOTOS[asset.id] || '';
+    const alreadyUploaded = savedFile ? '1' : '';
+    if (alreadyUploaded) photoStates[asset.id] = 'done';
+
+    wrap.innerHTML += `
+      <div class="field" style="margin-top:14px">
+        <label class="field-label">${asset.icon} ${asset.label}
+          <span class="hint">Show placement & branding</span>
+        </label>
+        ${savedFile
+          ? `<img src="/static/uploads/${savedFile}" class="img-preview"
+                  id="existing_${asset.id}" style="display:block;margin-bottom:10px"/>`
+          : ''}
+        <div class="img-upload">
+          <input type="file" id="input_${asset.id}" accept="image/*" capture="environment"
+                 onchange="handlePhotoSelect(event,'${asset.id}')" />
+          <div class="upload-icon">📷</div>
+          <p>Tap to capture ${asset.label.toLowerCase()}</p>
+          <img class="img-preview" id="preview_${asset.id}" />
+        </div>
+        <div class="photo-upload-status" id="status_${asset.id}">
+          ${savedFile ? '<span style="color:#16A34A;font-weight:700">✅ Photo saved</span>' : ''}
+        </div>
+        <input type="hidden" id="uploaded_${asset.id}" value="${alreadyUploaded}" />
+      </div>
+    `;
+  });
 }
+
+// Run on page load to restore state if assets already checked
+document.addEventListener('DOMContentLoaded', handleCoolingAsset);
 
 /* ═══════════════════════════════════════════════
    VALIDATORS
@@ -1202,7 +1339,7 @@ function validateStep1() {
   const hasPhoto = uploaded && uploaded.value === '1';
 
   // If still uploading, block and show a helpful message
-  if (photoState === 'compressing' || photoState === 'uploading') {
+  if (photoStates['photo'] === 'compressing' || photoStates['photo'] === 'uploading') {
     ok = false;
     errs.push('Photo (still uploading)');
     markGroupError('photo_err', true);
@@ -1331,7 +1468,7 @@ function handleNext() {
   const { ok, errs } = validate();
   if (!ok) {
     // Special friendlier message when photo is still uploading
-    if (photoState === 'uploading' || photoState === 'compressing') {
+    if (Object.values(photoStates).includes('uploading') || Object.values(photoStates).includes('compressing')) {
       showToast('⏳ Photo is still uploading, please wait…', 'warn');
     } else {
       const msg = errs.length
