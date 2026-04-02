@@ -9,6 +9,25 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import io
+import traceback  
+
+from dotenv import load_dotenv
+from s3_helper import upload_to_s3, get_s3_url, delete_survey_photos
+
+load_dotenv()
+
+
+from s3_helper import upload_to_s3, get_s3_url, delete_survey_photos
+
+def attach_photo_urls(survey):
+    """Adds _url keys for all photo columns using S3 presigned URLs."""
+    photo_cols = [
+        'photo_filename', 'interior_photo', 'shelf_photo', 'posm_photo',
+        'cooler_photo_visi', 'cooler_photo_bottle', 'cooler_photo_freezer', 'space_photo'
+    ]
+    for col in photo_cols:
+        survey[f"{col}_url"] = get_s3_url(survey.get(col))
+    return survey
 
 # ──────────────────────────────────────────────
 # App Config
@@ -313,6 +332,7 @@ def survey_step(survey_id, step):
         try:
             survey[json_col] = json.loads(survey.get(json_col) or '{}')
         except: survey[json_col] = {}
+    survey = attach_photo_urls(survey) 
     user = current_user()
     return render_template('survey.html', survey=survey, step=step, total_steps=7, user=user)
 
@@ -412,31 +432,35 @@ def upload_photo_bg(survey_id):
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type'}), 400
 
-    allowed_types = {'photo', 'interior_photo', 'cooler_photo', 'shelf_photo', 'posm_photo', 'space_photo'}
+    allowed_types = {'photo', 'interior_photo', 'cooler_photo', 'shelf_photo',
+                     'posm_photo', 'space_photo', 'cooler_photo_visi',
+                     'cooler_photo_bottle', 'cooler_photo_freezer'}
     photo_type = request.form.get('photo_type', 'photo')
     if photo_type not in allowed_types:
         photo_type = 'photo'
 
-    # Map 'photo' → actual DB column name 'photo_filename'
     col_name = 'photo_filename' if photo_type == 'photo' else photo_type
 
-    ext = file.filename.rsplit('.', 1)[1].lower()
-    filename = f"{photo_type[:8]}_{survey_id[:8]}_{uuid.uuid4().hex[:6]}.{ext}"
-    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-
-    execute(f"UPDATE surveys SET {col_name}=?, updated_at=datetime('now') WHERE id=?",
-            [filename, survey_id])
-
-    return jsonify({'ok': True, 'filename': filename})
+    try:
+        s3_key = upload_to_s3(file.stream, survey_id, photo_type)
+        execute(f"UPDATE surveys SET {col_name}=?, updated_at=datetime('now') WHERE id=?",
+                [s3_key, survey_id])
+        return jsonify({'ok': True, 'filename': s3_key})
+    except Exception as e:
+        traceback.print_exc() 
+        return jsonify({'error': str(e)}), 500
+    
 
 @app.route('/survey/<survey_id>/delete', methods=['POST'])
 @login_required
 def delete_survey(survey_id):
     survey = row_to_dict(query("SELECT * FROM surveys WHERE id=?", [survey_id], one=True))
-    if survey and (survey['se_id'] == session['user_id'] or session.get('role')=='admin'):
+    if survey and (survey['se_id'] == session['user_id'] or session.get('role') == 'admin'):
+        delete_survey_photos(survey_id)   # ← delete from S3
         execute("DELETE FROM surveys WHERE id=?", [survey_id])
         flash('Survey deleted.', 'info')
-    return redirect(url_for('se_dashboard') if session.get('role')!='admin' else url_for('admin_surveys'))
+    return redirect(url_for('se_dashboard') if session.get('role') != 'admin' else url_for('admin_surveys'))
+
 
 @app.route('/survey/<survey_id>/reopen', methods=['POST'])
 @admin_required
@@ -524,29 +548,47 @@ def delete_user(user_id):
     return redirect(url_for('admin_users'))
 
 
+# AFTER
 @app.route('/admin/surveys')
 @admin_required
 def admin_surveys():
-    se_filter     = request.args.get('se','')
-    status_filter = request.args.get('status','')
-    date_from     = request.args.get('from','')
-    date_to       = request.args.get('to','')
+    se_filter      = request.args.get('se', '')
+    status_filter  = request.args.get('status', '')
+    date_from      = request.args.get('from', '')
+    date_to        = request.args.get('to', '')
+    region_filter  = request.args.get('region', '')
+    so_filter      = request.args.get('sales_office', '')
 
-    sql = """SELECT s.*, u.full_name se_name, u.employee_id se_empid, u.region
+    sql = """SELECT s.*, u.full_name se_name, u.employee_id se_empid, u.region, u.sales_office
              FROM surveys s JOIN users u ON s.se_id=u.id WHERE 1=1"""
     args = []
-    if se_filter:    sql += " AND u.id=?";                     args.append(se_filter)
-    if status_filter: sql += " AND s.status=?";               args.append(status_filter)
-    if date_from:    sql += " AND date(s.created_at)>=?";      args.append(date_from)
-    if date_to:      sql += " AND date(s.created_at)<=?";      args.append(date_to)
+    if se_filter:      sql += " AND u.id=?";                args.append(se_filter)
+    if status_filter:  sql += " AND s.status=?";            args.append(status_filter)
+    if date_from:      sql += " AND date(s.created_at)>=?"; args.append(date_from)
+    if date_to:        sql += " AND date(s.created_at)<=?"; args.append(date_to)
+    if region_filter:  sql += " AND u.region=?";            args.append(region_filter)
+    if so_filter:      sql += " AND u.sales_office=?";      args.append(so_filter)
     sql += " ORDER BY s.updated_at DESC"
 
     surveys = [dict(r) for r in query(sql, args)]
-    se_list = query("SELECT id, full_name, employee_id FROM users WHERE role='se' AND is_active=1")
-    return render_template('admin_surveys.html', surveys=surveys, se_list=se_list,
-                           filters={'se': se_filter,'status': status_filter,
-                                    'from': date_from, 'to': date_to},
-                           user=current_user())
+
+    all_ses = [dict(r) for r in query("""
+        SELECT id, full_name, employee_id, region, sales_office
+        FROM users WHERE role='se' AND is_active=1 ORDER BY full_name
+    """)]
+    regions = sorted(set(s['region'] for s in all_ses if s['region']))
+    offices = sorted(set(s['sales_office'] for s in all_ses if s['sales_office']))
+
+    return render_template('admin_surveys.html',
+        surveys=surveys,
+        se_list=all_ses,
+        regions=regions,
+        offices=offices,
+        all_ses_json=json.dumps(all_ses),
+        filters={'se': se_filter, 'status': status_filter,
+                 'from': date_from, 'to': date_to,
+                 'region': region_filter, 'sales_office': so_filter},
+        user=current_user())
 
 @app.route('/admin/survey/<survey_id>/view')
 @admin_required
@@ -559,7 +601,9 @@ def admin_view_survey(survey_id):
     for col in ['industry_data','heritage_data','competition_data','supply_data','cooling_data']:
         try:    survey[col] = json.loads(survey.get(col) or '{}')
         except: survey[col] = {}
+    survey = attach_photo_urls(survey)   # ← add this
     return render_template('admin_view_survey.html', survey=survey, user=current_user())
+
 
 @app.route('/admin/users')
 @admin_required
@@ -634,6 +678,11 @@ def export_excel():
         ORDER BY s.submitted_at DESC
     """)]
 
+    def photo_url(s3_key):
+        if not s3_key:
+            return ''
+        return get_s3_url(s3_key) or '' 
+
     wb = openpyxl.Workbook()
     ws1 = wb.active
     ws1.title = "Survey Summary"
@@ -698,10 +747,19 @@ def export_excel():
         cell.border = thin
         ws1.column_dimensions[get_column_letter(ci)].width = max(12, min(30, len(h) + 4))
 
-    BASE_URL = "http://localhost:5000/static/uploads/"  # adjust for production
+    # BEFORE
+    BASE_URL = "http://localhost:5000/static/uploads/"
 
     def photo_url(filename):
         return (BASE_URL + filename) if filename else ''
+
+    # AFTER
+    def photo_url(s3_key):
+        if not s3_key:
+            return ''
+        if '/' not in s3_key:   # old local filename — skip
+            return ''
+        return get_s3_url(s3_key) or ''
 
     for ri, sv in enumerate(surveys, 2):
         ind  = json.loads(sv.get('industry_data')   or '{}')

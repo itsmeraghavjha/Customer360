@@ -18,34 +18,65 @@
     <h1 style="font-size:20px;font-weight:800;color:var(--green-800);margin-bottom:16px">📋 All Surveys</h1>
 
     <div class="card" style="margin-bottom:20px">
-      <form method="GET" class="filter-row" style="margin-bottom:0">
+      <form method="GET" class="filter-row" style="margin-bottom:0" id="filterForm">
+
         <div class="field">
-          <label>Sales Executive</label>
-          <select name="se">
-            <option value="">All SEs</option>
-            {% for se in se_list %}
-            <option value="{{ se.id }}" {% if filters.se == se.id|string %}selected{% endif %}>{{ se.full_name }} ({{ se.employee_id }})</option>
+          <label>Region</label>
+          <select name="region" id="filterRegion" onchange="cascadeFilters()">
+            <option value="">All Regions</option>
+            {% for r in regions %}
+            <option value="{{ r }}" {% if filters.region == r %}selected{% endif %}>{{ r }}</option>
             {% endfor %}
           </select>
         </div>
+
+        <div class="field">
+          <label>Sales Office</label>
+          <select name="sales_office" id="filterOffice" onchange="cascadeFilters()">
+            <option value="">All Offices</option>
+            {% for o in offices %}
+            <option value="{{ o }}" {% if filters.sales_office == o %}selected{% endif %}>{{ o }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Sales Executive</label>
+          <select name="se" id="filterSE">
+            <option value="">All SEs</option>
+            {% for se in se_list %}
+            <option value="{{ se.id }}"
+                    data-region="{{ se.region }}"
+                    data-office="{{ se.sales_office }}"
+                    {% if filters.se == se.id|string %}selected{% endif %}>
+              {{ se.full_name }} ({{ se.employee_id }})
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
         <div class="field">
           <label>Status</label>
           <select name="status">
             <option value="">All Statuses</option>
             <option value="submitted" {% if filters.status == 'submitted' %}selected{% endif %}>Submitted</option>
-            <option value="draft" {% if filters.status == 'draft' %}selected{% endif %}>Draft</option>
+            <option value="draft"     {% if filters.status == 'draft'     %}selected{% endif %}>Draft</option>
           </select>
         </div>
+
         <div class="field">
           <label>From Date</label>
           <input type="date" name="from" value="{{ filters.from }}">
         </div>
+
         <div class="field">
           <label>To Date</label>
           <input type="date" name="to" value="{{ filters.to }}">
         </div>
+
         <button type="submit" class="btn btn-primary" style="padding:9px 16px;height:40px">Filter</button>
         <a href="/admin/surveys" class="btn btn-ghost" style="padding:9px 16px;height:40px">Clear</a>
+
       </form>
     </div>
 
@@ -56,6 +87,8 @@
             <tr>
               <th>Outlet Name</th>
               <th>Area</th>
+              <th>Region</th>
+              <th>Sales Office</th>
               <th>SE Name</th>
               <th>Status</th>
               <th>Updated</th>
@@ -67,6 +100,8 @@
             <tr>
               <td style="font-weight:700">{{ s.outlet_name or '(Untitled Draft)' }}</td>
               <td>{{ s.area or '—' }}</td>
+              <td>{{ s.region or '—' }}</td>
+              <td>{{ s.sales_office or '—' }}</td>
               <td>
                 {{ s.se_name }}<br/>
                 <span style="font-size:10px;color:var(--text-sub)">{{ s.se_empid }}</span>
@@ -79,7 +114,7 @@
             </tr>
             {% else %}
             <tr>
-              <td colspan="6" style="text-align:center;padding:32px;color:var(--text-sub)">
+              <td colspan="8" style="text-align:center;padding:32px;color:var(--text-sub)">
                 No surveys found matching your criteria.
               </td>
             </tr>
@@ -91,4 +126,72 @@
 
   </div>
 </div>
+
+<script>
+// Full SE data for cascading
+const ALL_SES = {{ all_ses_json | safe }};
+
+// All office options (pre-rendered from server)
+const ALL_OFFICES = [
+  {% for o in offices %}
+  "{{ o }}",
+  {% endfor %}
+];
+
+function cascadeFilters() {
+  const selectedRegion = document.getElementById('filterRegion').value;
+  const selectedOffice = document.getElementById('filterOffice').value;
+
+  // --- Cascade: Region → filter Sales Office options ---
+  const officeSelect = document.getElementById('filterOffice');
+  const currentOffice = officeSelect.value;
+
+  // Get offices that belong to selected region
+  const validOffices = selectedRegion
+    ? [...new Set(ALL_SES.filter(s => s.region === selectedRegion && s.sales_office).map(s => s.sales_office))].sort()
+    : ALL_OFFICES;
+
+  // Rebuild office options
+  officeSelect.innerHTML = '<option value="">All Offices</option>';
+  validOffices.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o;
+    opt.textContent = o;
+    if (o === currentOffice) opt.selected = true;
+    officeSelect.appendChild(opt);
+  });
+
+  // If previously selected office is no longer valid, reset it
+  if (selectedRegion && currentOffice && !validOffices.includes(currentOffice)) {
+    officeSelect.value = '';
+  }
+
+  // --- Cascade: Region + Office → filter SE options ---
+  const seSelect = document.getElementById('filterSE');
+  const currentSE = seSelect.value;
+  const activeOffice = officeSelect.value;
+
+  const validSEs = ALL_SES.filter(s => {
+    const regionMatch = !selectedRegion || s.region === selectedRegion;
+    const officeMatch = !activeOffice || s.sales_office === activeOffice;
+    return regionMatch && officeMatch;
+  });
+
+  seSelect.innerHTML = '<option value="">All SEs</option>';
+  validSEs.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = `${s.full_name} (${s.employee_id})`;
+    if (String(s.id) === currentSE) opt.selected = true;
+    seSelect.appendChild(opt);
+  });
+}
+
+// Run on page load to restore cascaded state from URL params
+document.addEventListener('DOMContentLoaded', () => {
+  const region = document.getElementById('filterRegion').value;
+  const office = document.getElementById('filterOffice').value;
+  if (region || office) cascadeFilters();
+});
+</script>
 {% endblock %}

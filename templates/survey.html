@@ -321,10 +321,10 @@
     <label class="field-label">Outlet Photo <span class="req">*</span> <span class="hint">Hoarding must be visible</span></label>
 
     <!-- Existing photo preview (already saved) -->
-    {% if survey.photo_filename %}
-    <img src="/static/uploads/{{ survey.photo_filename }}" class="img-preview"
-         id="existingPhoto" style="display:block;margin-bottom:10px"/>
-    {% endif %}
+    {% if survey.photo_filename_url %}
+<img src="{{ survey.photo_filename_url }}" class="img-preview"
+     id="existingPhoto" style="display:block;margin-bottom:10px"/>
+{% endif %}
 
     <div class="img-upload" id="imgUploadBox">
       <!-- File input — we read this, compress, upload in background, then CLEAR it
@@ -382,9 +382,9 @@
 <div class="section-divider"></div>
 <div class="field">
   <label class="field-label">🏪 Outlet Interior Photo <span class="hint">Wide shot of shop layout</span></label>
-  {% if survey.interior_photo %}
-    <img src="/static/uploads/{{ survey.interior_photo }}" class="img-preview" style="display:block;margin-bottom:10px"/>
-  {% endif %}
+  {% if survey.interior_photo_url %}
+<img src="{{ survey.interior_photo_url }}" .../>
+{% endif %}
   <div class="img-upload">
     <input type="file" id="input_interior_photo" accept="image/*" capture="environment"
            onchange="handlePhotoSelect(event,'interior_photo')" />
@@ -1118,7 +1118,7 @@ async function handlePhotoSelect(e, fieldId = 'photo') {
   photoStates[fieldId] = 'uploading';
 
   try {
-    const compressed = await compressImage(file);
+    const compressed = await compressImage(file, 900, 0.72);
     const formData = new FormData();
     formData.append('photo', compressed, 'outlet.jpg');
     formData.append('photo_type', fieldId);

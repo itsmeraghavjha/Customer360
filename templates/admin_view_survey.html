@@ -30,23 +30,32 @@
       </div>
     </div>
 
+    <!-- Submitted By -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">👤 Submitted By</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">SE Name</div><div style="font-weight:700">{{ survey.se_name }}</div></div>
         <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">Emp ID</div><div style="font-weight:700">{{ survey.employee_id }}</div></div>
         <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">Region</div><div style="font-weight:700">{{ survey.region or '—' }}</div></div>
+        <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">Survey ID</div><div style="font-weight:700">{{ survey.id }}</div></div>
         <div><div style="font-size:11px;color:var(--text-sub);font-weight:700">Submitted</div><div style="font-weight:700">{{ (survey.submitted_at or '—')[:16] }}</div></div>
       </div>
     </div>
 
+    <!-- Outlet Photo + Basic Details -->
     <div class="view-survey-grid">
-      {% if survey.photo_filename %}
+      {% if survey.photo_filename_url %}
       <div class="card">
         <div class="card-title">📷 Outlet Photo</div>
-        <img src="/static/uploads/{{ survey.photo_filename }}" class="outlet-photo" alt="Outlet" style="width:100%; border-radius:8px;"/>
+        <img src="{{ survey.photo_filename_url }}" alt="Outlet"
+             style="width:100%;border-radius:8px;object-fit:cover;max-height:280px"/>
       </div>
-      {% endif %}
+      {% else %}
+  <div style="padding:20px;text-align:center;color:var(--text-sub);font-size:13px;background:var(--surface2);border-radius:8px">
+    📷 Photo not available<br>
+    <span style="font-size:11px">(Uploaded before S3 was configured)</span>
+  </div>
+{% endif %}
 
       <div class="card">
         <div class="card-title">📍 Basic Details</div>
@@ -56,6 +65,7 @@
             ('Owner', survey.owner_name),
             ('Mobile', survey.mobile),
             ('WhatsApp', 'Yes' if survey.whatsapp_enabled else 'No'),
+            ('FSSAI', survey.fssai_number),
             ('Area', survey.area),
             ('Outlet Type', survey.outlet_type),
             ('GPS', (survey.latitude|string + ', ' + survey.longitude|string) if survey.latitude else '—'),
@@ -69,6 +79,32 @@
       </div>
     </div>
 
+    <!-- Step 2 Photos -->
+    {% set step2_photos = [
+      (survey.interior_photo_url,      '🏪 Interior Photo'),
+      (survey.shelf_photo_url,         '🟢 Heritage Shelf Photo'),
+      (survey.posm_photo_url,          '📌 POSM / Branding Photo'),
+    ] %}
+    {% if survey.interior_photo_url or survey.shelf_photo_url or survey.posm_photo_url %}
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">📸 Outlet Photos</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+        {% for url, label in step2_photos %}
+        {% if url %}
+        <div>
+          <div style="font-size:11px;font-weight:800;color:var(--text-sub);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">{{ label }}</div>
+          <a href="{{ url }}" target="_blank">
+            <img src="{{ url }}" alt="{{ label }}"
+                 style="width:100%;border-radius:8px;object-fit:cover;max-height:200px;border:1px solid var(--border)"/>
+          </a>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Category Size vs Heritage -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">📊 Category Size vs Heritage Presence</div>
       {% set products = [
@@ -88,7 +124,6 @@
             {% for key, label, unit in products %}
             {% set ind_val = survey.industry_data.get(key, '') %}
             {% set her_val = survey.heritage_data.get(key, '') %}
-            
             {% set ind_num = ind_val | float(default=0) %}
             {% set her_num = her_val | float(default=0) %}
             {% set pct = ((her_num / ind_num) * 100)|round|int if ind_num > 0 else 0 %}
@@ -112,8 +147,16 @@
           </tbody>
         </table>
       </div>
+
+      <!-- Ice Cream -->
+      <div style="margin-top:14px;display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
+        <div><span style="font-weight:700">IC Available:</span> {{ survey.icecream_available or '—' }}</div>
+        {% if survey.icecream_interest %}<div><span style="font-weight:700">Interest:</span> {{ survey.icecream_interest }}</div>{% endif %}
+        {% if survey.icecream_brands %}<div><span style="font-weight:700">Brands:</span> {{ survey.icecream_brands }}</div>{% endif %}
+      </div>
     </div>
 
+    <!-- Competition -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">🏆 Competition Mapping</div>
       <div class="view-survey-comp-grid">
@@ -139,37 +182,69 @@
       </div>
     </div>
 
+    <!-- Supply + Cooling -->
     <div class="view-survey-grid">
       <div class="card">
         <div class="card-title">🚚 Supply & Distribution</div>
         {% set sup = survey.supply_data %}
         <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
           <div><span style="font-weight:700">Direct Supply:</span> {{ sup.get('direct_supply','—')|upper }}</div>
-          {% if sup.get('customer_id') %}<div><span style="font-weight:700">Customer ID:</span> {{ sup.customer_id }}</div>{% endif %}
+          {% if sup.get('customer_id') %}<div><span style="font-weight:700">Customer ID:</span> {{ sup.get('customer_id') }}</div>{% endif %}
           <div><span style="font-weight:700">Fresh:</span> {{ (sup.get('fresh_channels') or ['—'])|join(', ') }}</div>
+          {% if sup.get('fresh_reason') %}<div><span style="font-weight:700">Fresh Reason:</span> {{ sup.get('fresh_reason') }}</div>{% endif %}
           <div><span style="font-weight:700">Other:</span> {{ (sup.get('other_channels') or ['—'])|join(', ') }}</div>
-          {% if sup.get('ic_distributor') %}<div><span style="font-weight:700">IC Distributor:</span> {{ sup.ic_distributor }}</div>{% endif %}
+          {% if sup.get('other_reason') %}<div><span style="font-weight:700">Other Reason:</span> {{ sup.get('other_reason') }}</div>{% endif %}
+          {% if sup.get('ic_distributor') %}<div><span style="font-weight:700">IC Distributor:</span> {{ sup.get('ic_distributor') }}</div>{% endif %}
         </div>
       </div>
+
       <div class="card">
-        <div class="card-title">❄️ Cooling</div>
+        <div class="card-title">❄️ Cooling Infrastructure</div>
         {% set cool = survey.cooling_data %}
         <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
           <div><span style="font-weight:700">Assets:</span> {{ (cool.get('assets') or ['None'])|join(', ') }}</div>
           <div><span style="font-weight:700">Ownership:</span> {{ cool.get('ownership','—')|title }}</div>
+          <div><span style="font-weight:700">Space Available:</span> {{ cool.get('space_available','—')|title }}</div>
           <div><span style="font-weight:700">Interested:</span> {{ cool.get('interested','—')|title }}</div>
-          {% if cool.get('preferred_type') %}<div><span style="font-weight:700">Preferred:</span> {{ cool.preferred_type }}</div>{% endif %}
-          {% if cool.get('space_available') %}<div><span style="font-weight:700">Space:</span> {{ cool.space_available|title }}</div>{% endif %}
+          {% if cool.get('preferred_type') %}<div><span style="font-weight:700">Preferred Type:</span> {{ cool.get('preferred_type') }}</div>{% endif %}
         </div>
       </div>
     </div>
 
+    <!-- Cooler + Space Photos -->
+    {% set cooler_photos = [
+      (survey.cooler_photo_visi_url,    '🥶 Visi Cooler'),
+      (survey.cooler_photo_bottle_url,  '🫙 Bottle Cooler'),
+      (survey.cooler_photo_freezer_url, '🍦 IC Freezer'),
+      (survey.space_photo_url,          '📐 Available Space'),
+    ] %}
+    {% if survey.cooler_photo_visi_url or survey.cooler_photo_bottle_url or survey.cooler_photo_freezer_url or survey.space_photo_url %}
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">❄️ Cooler Photos</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+        {% for url, label in cooler_photos %}
+        {% if url %}
+        <div>
+          <div style="font-size:11px;font-weight:800;color:var(--text-sub);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">{{ label }}</div>
+          <a href="{{ url }}" target="_blank">
+            <img src="{{ url }}" alt="{{ label }}"
+                 style="width:100%;border-radius:8px;object-fit:cover;max-height:200px;border:1px solid var(--border)"/>
+          </a>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- SE Remarks -->
     {% if survey.se_remarks %}
     <div class="card">
       <div class="card-title">💬 SE Remarks</div>
       <p style="font-size:14px;line-height:1.6;color:var(--text-mid)">{{ survey.se_remarks }}</p>
     </div>
     {% endif %}
+
   </div>
 </div>
 {% endblock %}
